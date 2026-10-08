@@ -315,3 +315,62 @@ def test_export_to_csv_format(service: LeadAutomationService):
     assert "CSV-1,Farooq Azam,farooq@azam.org,Azam Logistics,Logistics,60000.00,ENTERPRISE" in csv_content
     assert "YES" in csv_content
 
+
+# ==========================================
+# Public Customer Ingestion & Webhook Tests
+# ==========================================
+
+def test_public_apply_page_renders():
+    """Asserts that the public customer quotation portal (/apply) loads cleanly."""
+    from fastapi.testclient import TestClient
+    from app import app
+
+    client = TestClient(app)
+    response = client.get("/apply")
+    assert response.status_code == 200
+    assert "Request an AI Architecture Consultation" in response.text
+    assert "form id=\"applyForm\"" in response.text
+
+
+def test_public_webhook_enterprise_lead_ingestion():
+    """Verifies that public customer submissions are validated and prioritized as VIP."""
+    from fastapi.testclient import TestClient
+    from app import app
+
+    client = TestClient(app)
+    payload = {
+        "name": "Tanvir Hossain",
+        "email": "tanvir@dhakacloud.ai",
+        "company": "Dhaka Cloud AI",
+        "budget": 95_000.0,
+        "industry": "AI",
+        "project_scope": "Full-stack enterprise AI automation",
+    }
+    response = client.post("/api/webhook/lead", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "success"
+    assert data["tier"] == "ENTERPRISE"
+    assert data["is_vip"] is True
+    assert data["lead_id"].startswith("PUB-")
+
+
+def test_public_webhook_invalid_email_rejection():
+    """Asserts that invalid public form inputs are rejected with 422 validation errors."""
+    from fastapi.testclient import TestClient
+    from app import app
+
+    client = TestClient(app)
+    payload = {
+        "name": "Broken User",
+        "email": "not-an-email-domain",
+        "company": "Failing Corp",
+        "budget": 50_000.0,
+        "industry": "General",
+        "project_scope": "Testing rejection",
+    }
+    response = client.post("/api/webhook/lead", json=payload)
+    assert response.status_code == 422
+    assert "Validation Error" in response.json()["detail"]
+
+
