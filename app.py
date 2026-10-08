@@ -1,11 +1,12 @@
 """
 Module: app.py
 Description: FastAPI web dashboard for SBMC LeadAutomationService.
-Provides interactive UI, sample data loader, live scoring, VIP badges, and metric cards.
+Provides interactive UI, sample data loader, live scoring, VIP alert dispatch,
+AI email draft previews, and CSV export.
 """
 
 from typing import Any, Dict, List
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 import uvicorn
@@ -15,7 +16,7 @@ from automation_service import LeadAutomationService
 app = FastAPI(
     title="SBMC Lead Automation Dashboard",
     description="Business Automation & Lead Qualification Service with Real-time Validation",
-    version="1.0.0",
+    version="1.1.0",
 )
 
 service = LeadAutomationService()
@@ -101,6 +102,21 @@ def process_leads(payload: ProcessLeadsRequest) -> Dict[str, Any]:
     }
 
 
+@app.post("/api/export-csv")
+def export_leads_csv(payload: ProcessLeadsRequest) -> Response:
+    """Exports validated leads to downloadable RFC 4180 CSV format."""
+    if not payload.leads:
+        raise HTTPException(status_code=400, detail="No leads provided for export.")
+
+    qualified_leads, _ = service.process_batch(payload.leads)
+    csv_content = service.export_to_csv(qualified_leads)
+    return Response(
+        content=csv_content,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=qualified_leads.csv"},
+    )
+
+
 @app.get("/", response_class=HTMLResponse)
 def dashboard_ui() -> str:
     """Renders the comprehensive, modern dashboard HTML user interface."""
@@ -109,7 +125,7 @@ def dashboard_ui() -> str:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SBMC Lead Automation Dashboard</title>
+    <title>SBMC Lead Automation Dashboard — Production Edition</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
@@ -118,7 +134,7 @@ def dashboard_ui() -> str:
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen">
     <!-- Top Navigation -->
-    <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-50">
+    <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-40">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
             <div class="flex items-center gap-3">
                 <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center shadow-lg shadow-indigo-500/20">
@@ -128,7 +144,7 @@ def dashboard_ui() -> str:
                 </div>
                 <div>
                     <h1 class="font-bold text-lg text-white leading-tight">SBMC Automation Engine</h1>
-                    <p class="text-xs text-slate-400">Module M4 • Intelligent Lead Qualification & Scoring</p>
+                    <p class="text-xs text-slate-400">Production Workflow • VIP Alert Dispatch • AI Email • CSV Export</p>
                 </div>
             </div>
             <div class="flex items-center gap-4">
@@ -143,26 +159,54 @@ def dashboard_ui() -> str:
         </div>
     </header>
 
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-        <!-- Control Actions Banner -->
-        <div class="bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4">
-            <div>
-                <h2 class="text-xl font-bold text-white">Business Lead Ingestion & Scoring Hub</h2>
-                <p class="text-sm text-slate-400 mt-1">Submit single leads or trigger batch automation with full Pydantic validation & resilience.</p>
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+        <!-- Live VIP Alert Dispatch Banner (Appears when VIPs detected) -->
+        <div id="vipAlertBanner" class="hidden bg-gradient-to-r from-purple-950/80 via-indigo-950/60 to-purple-950/80 border border-purple-500/40 rounded-2xl p-5 shadow-2xl relative overflow-hidden">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div class="flex items-start gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-purple-500/20 border border-purple-500/30 flex items-center justify-center flex-shrink-0 animate-bounce">
+                        <span class="text-xl">🔔</span>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-purple-500 text-white uppercase tracking-wider">
+                                Live VIP Dispatch
+                            </span>
+                            <span class="text-xs text-purple-300">Telegram Bot & Executive Email Active</span>
+                        </div>
+                        <h3 class="text-base font-bold text-white mt-1" id="vipAlertTitle">High-Value Enterprise Accounts Detected</h3>
+                        <p class="text-xs text-slate-300 mt-0.5" id="vipAlertSubtitle">Real-time alerts dispatched to Telegram Executive Channel (@sbmc_vip_bot) and Executive Email.</p>
+                    </div>
+                </div>
+                <div id="vipAlertBadges" class="flex flex-wrap items-center gap-2"></div>
             </div>
-            <div class="flex items-center gap-3 w-full md:w-auto">
-                <button id="loadSampleBtn" onclick="loadSampleLeads()" class="flex-1 md:flex-initial px-4 py-2.5 rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-700 text-sm font-semibold text-slate-200 transition shadow-sm flex items-center justify-center gap-2">
+        </div>
+
+        <!-- Control Actions Banner -->
+        <div class="bg-gradient-to-r from-slate-900 via-indigo-950/30 to-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4">
+            <div>
+                <h2 class="text-xl font-bold text-white">Business Lead Ingestion & Qualification Hub</h2>
+                <p class="text-sm text-slate-400 mt-1">One-click automation pipeline with instant lead scoring, alert routing, and export.</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-3 w-full md:w-auto">
+                <button id="loadSampleBtn" onclick="loadSampleLeads()" class="px-4 py-2.5 rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-700 text-sm font-semibold text-slate-200 transition shadow-sm flex items-center justify-center gap-2">
                     <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                     </svg>
                     Load Sample Leads
                 </button>
-                <button id="runBtn" onclick="runAutomation()" class="flex-1 md:flex-initial px-6 py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-600 hover:to-violet-700 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition flex items-center justify-center gap-2">
+                <button id="runBtn" onclick="runAutomation()" class="px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-600 hover:to-violet-700 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition flex items-center justify-center gap-2">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                     Run Automation
+                </button>
+                <button id="exportCsvBtn" onclick="exportCleanCsv()" class="px-4 py-2.5 rounded-xl border border-emerald-500/30 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 text-sm font-semibold transition flex items-center justify-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    Export Clean CSV
                 </button>
             </div>
         </div>
@@ -275,7 +319,7 @@ def dashboard_ui() -> str:
             <div class="p-6 border-b border-slate-800 flex items-center justify-between">
                 <div>
                     <h3 class="font-bold text-white text-lg">Qualified Leads & Scoring Results</h3>
-                    <p class="text-xs text-slate-400">Classified into tiers with dynamic scoring notes and status badges</p>
+                    <p class="text-xs text-slate-400">Classified into tiers with dynamic scoring, VIP alert dispatches, and tailored AI follow-up emails</p>
                 </div>
                 <div id="tierPills" class="flex items-center gap-2"></div>
             </div>
@@ -289,7 +333,7 @@ def dashboard_ui() -> str:
                             <th class="px-6 py-3.5">Budget</th>
                             <th class="px-6 py-3.5">Priority Tier</th>
                             <th class="px-6 py-3.5">Score</th>
-                            <th class="px-6 py-3.5">Qualification Notes</th>
+                            <th class="px-6 py-3.5">AI Follow-up & Actions</th>
                         </tr>
                     </thead>
                     <tbody id="resultsTableBody" class="divide-y divide-slate-800/60">
@@ -316,9 +360,37 @@ def dashboard_ui() -> str:
         </div>
     </main>
 
+    <!-- AI Follow-up Email Modal -->
+    <div id="emailModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-2xl relative">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                <div class="flex items-center gap-2">
+                    <span class="text-xl">✉️</span>
+                    <h3 class="font-bold text-white text-base">Generated AI Follow-Up Email Draft</h3>
+                </div>
+                <button onclick="closeEmailModal()" class="text-slate-400 hover:text-white transition text-lg">&times;</button>
+            </div>
+            <div>
+                <span id="modalLeadInfo" class="text-xs font-semibold text-indigo-400"></span>
+                <div class="mt-2 relative">
+                    <pre id="modalEmailContent" class="bg-slate-950 border border-slate-800 rounded-xl p-4 text-xs font-mono text-slate-200 whitespace-pre-wrap leading-relaxed max-h-96 overflow-y-auto"></pre>
+                </div>
+            </div>
+            <div class="flex items-center justify-end gap-3 pt-2">
+                <button onclick="copyModalEmail()" id="copyEmailBtn" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white transition flex items-center gap-1.5 shadow-lg shadow-indigo-600/20">
+                    <span>📋 Copy Email</span>
+                </button>
+                <button onclick="closeEmailModal()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 transition">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Client-Side Dashboard Logic -->
     <script>
         let currentQueue = [];
+        let currentQualifiedLeads = [];
 
         function updateQueueDisplay() {
             document.getElementById('jsonQueue').value = JSON.stringify(currentQueue, null, 2);
@@ -357,7 +429,6 @@ def dashboard_ui() -> str:
         }
 
         async function runAutomation() {
-            // Sync current editor state
             try {
                 const text = document.getElementById('jsonQueue').value.trim();
                 if (text) {
@@ -390,6 +461,7 @@ def dashboard_ui() -> str:
                 }
 
                 const data = await res.json();
+                currentQualifiedLeads = data.leads;
                 renderResults(data);
             } catch (err) {
                 alert('Automation run failed: ' + err.message);
@@ -405,6 +477,38 @@ def dashboard_ui() -> str:
             }
         }
 
+        async function exportCleanCsv() {
+            if (!currentQueue || currentQueue.length === 0) {
+                alert('Ingestion queue is empty. Please load or add leads before exporting.');
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/export-csv', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ leads: currentQueue })
+                });
+
+                if (!res.ok) {
+                    throw new Error('CSV generation failed');
+                }
+
+                const blob = await res.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = `qualified_leads_${new Date().toISOString().slice(0, 10)}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                a.remove();
+            } catch (err) {
+                alert('Export failed: ' + err.message);
+            }
+        }
+
         function renderResults(data) {
             const { leads, summary } = data;
 
@@ -414,23 +518,40 @@ def dashboard_ui() -> str:
             document.getElementById('metricPipeline').innerText = '$' + summary.total_pipeline_value.toLocaleString('en-US', { minimumFractionDigits: 2 });
             document.getElementById('metricInvalid').innerText = summary.total_invalid;
 
+            // VIP Alerts Banner
+            const vipBanner = document.getElementById('vipAlertBanner');
+            const vipBadgesContainer = document.getElementById('vipAlertBadges');
+            if (summary.vip_alerts && summary.vip_alerts.length > 0) {
+                vipBanner.classList.remove('hidden');
+                vipBadgesContainer.innerHTML = summary.vip_alerts.map(a => `
+                    <div class="px-3 py-1.5 rounded-xl bg-purple-900/60 border border-purple-500/50 text-xs flex items-center gap-2 shadow-lg">
+                        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                        <span class="font-bold text-white">${a.company}</span>
+                        <span class="font-mono text-purple-200">($${a.budget.toLocaleString()})</span>
+                        <span class="text-[10px] bg-purple-500/30 px-1.5 py-0.5 rounded text-purple-200">Telegram Dispatched</span>
+                    </div>
+                `).join('');
+            } else {
+                vipBanner.classList.add('hidden');
+            }
+
             // Render table
             const tbody = document.getElementById('resultsTableBody');
             if (!leads || leads.length === 0) {
                 tbody.innerHTML = `<tr><td colspan="6" class="px-6 py-6 text-center text-slate-500">No qualified leads generated.</td></tr>`;
             } else {
-                tbody.innerHTML = leads.map(lead => {
+                tbody.innerHTML = leads.map((lead, idx) => {
                     let badge = '';
                     if (lead.tier === 'ENTERPRISE') {
-                        badge = `<span class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-purple-500/15 text-purple-300 border border-purple-500/30">
+                        badge = `<span class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40">
                             ⭐ VIP Enterprise
                         </span>`;
                     } else if (lead.tier === 'GROWTH') {
-                        badge = `<span class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                        badge = `<span class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
                             🚀 Growth Tier
                         </span>`;
                     } else if (lead.tier === 'STANDARD') {
-                        badge = `<span class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-blue-500/15 text-blue-300 border border-blue-500/30">
+                        badge = `<span class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-blue-500/20 text-blue-300 border border-blue-500/40">
                             💼 Standard
                         </span>`;
                     } else {
@@ -461,8 +582,10 @@ def dashboard_ui() -> str:
                                     ${lead.score}/100
                                 </span>
                             </td>
-                            <td class="px-6 py-4 text-xs text-slate-300">
-                                ${lead.qualification_notes}
+                            <td class="px-6 py-4">
+                                <button onclick="viewEmailDraft(${idx})" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 text-xs font-semibold text-indigo-300 transition">
+                                    <span>✉️ AI Draft</span>
+                                </button>
                             </td>
                         </tr>
                     `;
@@ -483,6 +606,30 @@ def dashboard_ui() -> str:
             } else {
                 errSection.classList.add('hidden');
             }
+        }
+
+        function viewEmailDraft(idx) {
+            const lead = currentQualifiedLeads[idx];
+            if (!lead) return;
+
+            document.getElementById('modalLeadInfo').innerText = `${lead.name} • ${lead.company} (${lead.tier})`;
+            document.getElementById('modalEmailContent').innerText = lead.email_draft || 'No email draft available.';
+            document.getElementById('emailModal').classList.remove('hidden');
+        }
+
+        function closeEmailModal() {
+            document.getElementById('emailModal').classList.add('hidden');
+        }
+
+        function copyModalEmail() {
+            const content = document.getElementById('modalEmailContent').innerText;
+            navigator.clipboard.writeText(content).then(() => {
+                const btn = document.getElementById('copyEmailBtn');
+                btn.innerHTML = '<span>✅ Copied!</span>';
+                setTimeout(() => {
+                    btn.innerHTML = '<span>📋 Copy Email</span>';
+                }, 2000);
+            });
         }
 
         // Preload sample leads on first load

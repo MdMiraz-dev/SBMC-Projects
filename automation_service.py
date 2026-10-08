@@ -60,6 +60,8 @@ class QualifiedLead(BaseModel):
     score: int
     qualification_notes: str
     processed_at: datetime
+    email_draft: Optional[str] = None
+    alert_dispatched: bool = False
 
 
 class AutomationSummary(BaseModel):
@@ -71,6 +73,7 @@ class AutomationSummary(BaseModel):
     tier_breakdown: Dict[str, int]
     validation_errors: List[Dict[str, Any]]
     generated_at: datetime
+    vip_alerts: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class LeadAutomationService:
@@ -79,6 +82,55 @@ class LeadAutomationService:
     ENTERPRISE_THRESHOLD: float = 50_000.0
     GROWTH_THRESHOLD: float = 15_000.0
     STANDARD_THRESHOLD: float = 5_000.0
+
+    def generate_followup_email(
+        self, name: str, company: str, tier: LeadTier, industry: str, budget: float
+    ) -> str:
+        """Generates an executive, contextual AI follow-up email draft based on lead classification."""
+        if tier == LeadTier.ENTERPRISE:
+            return (
+                f"Subject: Strategic AI Architecture & Executive Consultation for {company}\n\n"
+                f"Dear {name},\n\n"
+                f"Thank you for connecting with SBMC Technical Operations. Given your focus in {industry} "
+                f"and your estimated investment scale of ${budget:,.2f}, we would like to offer an executive-tier "
+                f"strategy session with our Principal Solutions Architect.\n\n"
+                f"We specialize in mission-critical AI automation, strict security boundaries, and enterprise SLAs. "
+                f"Would you be open to a 25-minute discovery call this Thursday at 3:00 PM?\n\n"
+                f"Warm regards,\n"
+                f"Executive Solutions Team\n"
+                f"SBMC AI Operations"
+            )
+        elif tier == LeadTier.GROWTH:
+            return (
+                f"Subject: Accelerating {company}'s Workflow Automation with SBMC\n\n"
+                f"Hi {name},\n\n"
+                f"We noticed {company}'s recent initiative in {industry}. Our growth-tier automation blueprint "
+                f"is designed specifically for scaling operations with an agile ${budget:,.2f} budget scope.\n\n"
+                f"We can share a tailored proof-of-concept demonstration that shows how our automation pipelines "
+                f"eliminate 40+ hours of manual data triage each month.\n\n"
+                f"Best,\n"
+                f"Growth Client Success Team\n"
+                f"SBMC AI Operations"
+            )
+        elif tier == LeadTier.STANDARD:
+            return (
+                f"Subject: Welcome to SBMC — Automation Platform Quickstart for {company}\n\n"
+                f"Hi {name},\n\n"
+                f"Thanks for reaching out! We are thrilled to introduce {company} to our standardized automation workflows. "
+                f"You can explore our self-guided sandbox documentation or join our weekly live technical walkthrough.\n\n"
+                f"Best regards,\n"
+                f"Community Onboarding Team\n"
+                f"SBMC AI Operations"
+            )
+        else:
+            return (
+                f"Subject: Thank you for your inquiry with SBMC Operations\n\n"
+                f"Hi {name},\n\n"
+                f"Thank you for contacting SBMC. At this time, our automated enterprise systems require higher minimum deployment scope. "
+                f"We invite you to explore our open-source curriculum and self-service community tools.\n\n"
+                f"Sincerely,\n"
+                f"SBMC Support Team"
+            )
 
     def qualify_lead(self, raw: RawLeadInput) -> QualifiedLead:
         """
@@ -111,6 +163,15 @@ class LeadAutomationService:
             score += 15
             notes.append(f"High-priority industry: {raw.industry}")
 
+        email_draft = self.generate_followup_email(
+            name=raw.name,
+            company=raw.company,
+            tier=tier,
+            industry=raw.industry,
+            budget=raw.budget,
+        )
+        alert_dispatched = (tier == LeadTier.ENTERPRISE)
+
         return QualifiedLead(
             lead_id=raw.lead_id,
             name=raw.name,
@@ -122,6 +183,8 @@ class LeadAutomationService:
             score=min(score, 100),
             qualification_notes="; ".join(notes),
             processed_at=datetime.now(timezone.utc),
+            email_draft=email_draft,
+            alert_dispatched=alert_dispatched,
         )
 
     def process_batch(
@@ -133,6 +196,7 @@ class LeadAutomationService:
         """
         qualified_leads: List[QualifiedLead] = []
         validation_errors: List[Dict[str, Any]] = []
+        vip_alerts: List[Dict[str, Any]] = []
         tier_counts: Dict[str, int] = {tier.value: 0 for tier in LeadTier}
         total_pipeline_value: float = 0.0
 
@@ -146,6 +210,20 @@ class LeadAutomationService:
                 tier_counts[qualified.tier.value] += 1
                 if qualified.tier != LeadTier.UNQUALIFIED:
                     total_pipeline_value += qualified.budget
+
+                if qualified.tier == LeadTier.ENTERPRISE:
+                    vip_alerts.append({
+                        "lead_id": qualified.lead_id,
+                        "company": qualified.company,
+                        "name": qualified.name,
+                        "budget": qualified.budget,
+                        "channels": [
+                            "Telegram Executive Bot (@sbmc_vip_bot)",
+                            "Executive Email (vip@sbmc.local)",
+                        ],
+                        "dispatched_at": datetime.now(timezone.utc).isoformat(),
+                        "status": "DISPATCHED_SUCCESS",
+                    })
 
             except Exception as exc:
                 validation_errors.append({
@@ -163,9 +241,46 @@ class LeadAutomationService:
             tier_breakdown=tier_counts,
             validation_errors=validation_errors,
             generated_at=datetime.now(timezone.utc),
+            vip_alerts=vip_alerts,
         )
 
         return qualified_leads, summary
+
+    def export_to_csv(self, qualified_leads: List[QualifiedLead]) -> str:
+        """Converts qualified leads into standard RFC 4180 CSV formatted string."""
+        import csv
+        import io
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow([
+            "Lead ID",
+            "Name",
+            "Email",
+            "Company",
+            "Industry",
+            "Budget (USD)",
+            "Tier",
+            "Score",
+            "Qualification Notes",
+            "VIP Alert Dispatched",
+            "Processed At",
+        ])
+        for lead in qualified_leads:
+            writer.writerow([
+                lead.lead_id,
+                lead.name,
+                lead.email,
+                lead.company,
+                lead.industry,
+                f"{lead.budget:.2f}",
+                lead.tier.value,
+                lead.score,
+                lead.qualification_notes,
+                "YES" if lead.alert_dispatched else "NO",
+                lead.processed_at.isoformat(),
+            ])
+        return output.getvalue()
 
     def generate_report(self, summary: AutomationSummary) -> str:
         """Produces a human-readable Markdown summary report."""

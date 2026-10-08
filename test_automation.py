@@ -231,3 +231,87 @@ def test_tier_budget_boundaries(service: LeadAutomationService, budget: float, e
     )
     qualified = service.qualify_lead(raw)
     assert qualified.tier == expected_tier
+
+
+# ==========================================
+# End-to-End Production Workflow Tests (M4)
+# ==========================================
+
+def test_vip_alert_dispatch_on_enterprise(service: LeadAutomationService):
+    """Verifies that ENTERPRISE leads automatically trigger VIP alert dispatches."""
+    batch = [
+        {
+            "lead_id": "VIP-1",
+            "name": "Elon Musk",
+            "email": "elon@xcorp.com",
+            "company": "X Corp",
+            "budget": 150_000.0,
+            "industry": "AI",
+        },
+        {
+            "lead_id": "NORM-1",
+            "name": "Regular User",
+            "email": "reg@user.com",
+            "company": "Small Biz",
+            "budget": 8_000.0,
+            "industry": "Retail",
+        },
+    ]
+    qualified, summary = service.process_batch(batch)
+
+    assert qualified[0].alert_dispatched is True
+    assert qualified[1].alert_dispatched is False
+    assert len(summary.vip_alerts) == 1
+    alert = summary.vip_alerts[0]
+    assert alert["lead_id"] == "VIP-1"
+    assert alert["company"] == "X Corp"
+    assert alert["status"] == "DISPATCHED_SUCCESS"
+    assert any("Telegram" in c for c in alert["channels"])
+
+
+def test_ai_followup_email_generation(service: LeadAutomationService):
+    """Ensures tailored email drafts are generated for each qualification tier."""
+    raw_enterprise = RawLeadInput(
+        lead_id="E-1",
+        name="Sarah Jenkins",
+        email="sarah@corp.com",
+        company="Global Enterprises",
+        budget=80_000.0,
+        industry="FinTech",
+    )
+    qualified_e = service.qualify_lead(raw_enterprise)
+    assert qualified_e.email_draft is not None
+    assert "Strategic AI Architecture" in qualified_e.email_draft
+    assert "Sarah Jenkins" in qualified_e.email_draft
+    assert "$80,000.00" in qualified_e.email_draft
+
+    raw_growth = RawLeadInput(
+        lead_id="G-1",
+        name="Alex Rivera",
+        email="alex@growthco.net",
+        company="GrowthCo",
+        budget=20_000.0,
+        industry="SaaS",
+    )
+    qualified_g = service.qualify_lead(raw_growth)
+    assert qualified_g.email_draft is not None
+    assert "Workflow Automation" in qualified_g.email_draft
+
+
+def test_export_to_csv_format(service: LeadAutomationService):
+    """Verifies RFC 4180 CSV export content and structure."""
+    raw = RawLeadInput(
+        lead_id="CSV-1",
+        name="Farooq Azam",
+        email="farooq@azam.org",
+        company="Azam Logistics",
+        budget=60_000.0,
+        industry="Logistics",
+    )
+    qualified = [service.qualify_lead(raw)]
+    csv_content = service.export_to_csv(qualified)
+
+    assert "Lead ID,Name,Email,Company,Industry,Budget (USD),Tier,Score,Qualification Notes,VIP Alert Dispatched,Processed At" in csv_content
+    assert "CSV-1,Farooq Azam,farooq@azam.org,Azam Logistics,Logistics,60000.00,ENTERPRISE" in csv_content
+    assert "YES" in csv_content
+
