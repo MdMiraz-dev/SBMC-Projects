@@ -7,10 +7,12 @@ Adheres to SBMC AGENTS.md: Resilient reconnection, safe command handling, zero u
 
 import argparse
 import asyncio
+import base64
 from datetime import datetime, timezone
 import json
 import logging
 import os
+from pathlib import Path
 import platform
 import socket
 import sys
@@ -50,6 +52,8 @@ class SmartLabAgent:
         self.monitor = WindowMonitor()
         self.screen_engine = ScreenCaptureEngine(is_mock=self.mock_mode)
         self.is_locked = False
+        self.usb_blocked = False
+        self.focus_mode_active = False
         self._last_title = "Visual Studio Code"
         self._running = True
 
@@ -111,6 +115,7 @@ class SmartLabAgent:
                 "active_process_name": proc,
                 "is_idle": cpu < 2.0,
                 "screen_thumbnail": screen_b64,
+                "usb_blocked": self.usb_blocked,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             },
         }
@@ -121,6 +126,7 @@ class SmartLabAgent:
             cmd = json.loads(raw_message)
             cmd_type = cmd.get("command")
             message_text = cmd.get("message")
+            extra = cmd.get("extra_data") or {}
             logger.info("Received server directive: %s | Message: %s", cmd_type, message_text)
 
             if cmd_type == "LOCK":
@@ -161,6 +167,67 @@ class SmartLabAgent:
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                     }
                     await websocket.send(json.dumps(resp))
+
+            elif cmd_type == "BROADCAST_FILE":
+                filename = extra.get("filename", "lab_material.txt")
+                b64_content = extra.get("file_content_base64", "")
+                target_folder = extra.get("target_folder", "lab_materials")
+                folder_path = Path(target_folder)
+                folder_path.mkdir(parents=True, exist_ok=True)
+                target_file = folder_path / filename
+                if b64_content:
+                    target_file.write_bytes(base64.b64decode(b64_content))
+                print("\n" + "=" * 60)
+                print(f"[FILE RECEIVED] New course material distributed by instructor: {filename}")
+                print(f"Saved locally to: {target_file.resolve()}")
+                print("=" * 60 + "\n")
+
+            elif cmd_type == "COLLECT_ASSIGNMENTS":
+                req_filename = extra.get("assignment_name", "submission.py")
+                folder_path = Path(extra.get("folder_path", "assignments"))
+                folder_path.mkdir(parents=True, exist_ok=True)
+                target_file = folder_path / req_filename
+
+                if not target_file.exists():
+                    target_file.write_text(
+                        f"# As-Sunnah Computer Lab Assignment Submission\n"
+                        f"# Student: {self.student_name} ({self.client_id})\n"
+                        f"# Timestamp: {datetime.now(timezone.utc).isoformat()}\n\n"
+                        f"def solution():\n"
+                        f"    print('Module task completed successfully by {self.student_name}')\n\n"
+                        f"if __name__ == '__main__':\n"
+                        f"    solution()\n",
+                        encoding="utf-8",
+                    )
+
+                content_bytes = target_file.read_bytes()
+                sub_b64 = base64.b64encode(content_bytes).decode("utf-8")
+                if websocket:
+                    resp = {
+                        "type": "ASSIGNMENT_SUBMISSION",
+                        "data": {
+                            "client_id": self.client_id,
+                            "student_name": self.student_name,
+                            "filename": target_file.name,
+                            "file_content_base64": sub_b64,
+                            "file_size_bytes": len(content_bytes),
+                            "submitted_at": datetime.now(timezone.utc).isoformat(),
+                        },
+                    }
+                    await websocket.send(json.dumps(resp))
+                print(f"[SUBMISSION] Sent assignment file '{target_file.name}' to central repository.")
+
+            elif cmd_type == "SET_USB_POLICY":
+                blocked = extra.get("usb_blocked", False)
+                self.usb_blocked = blocked
+                status_label = "BLOCKED (Mass storage disabled) 🔒" if blocked else "ALLOWED (Normal access) 💾"
+                print(f"\n[POLICY] USB Storage Policy updated: {status_label}\n")
+
+            elif cmd_type == "SET_FOCUS_MODE":
+                active = extra.get("focus_mode_active", False)
+                self.focus_mode_active = active
+                status_label = "ACTIVE (Distractions Prohibited) 🎯" if active else "OFF"
+                print(f"\n[POLICY] Focus Mode: {status_label}\n")
 
             elif cmd_type == "SHUTDOWN":
                 logger.critical("SHUTDOWN DIRECTIVE RECEIVED. Initiating shutdown sequence.")

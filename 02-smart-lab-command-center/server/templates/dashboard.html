@@ -34,12 +34,20 @@
             <!-- Top Right: Curfew Clock & Live Badge -->
             <!-- Top Right: Curfew Clock & Live Badge -->
             <div class="flex flex-wrap items-center gap-3">
+                <!-- Action Buttons: Daily Report & Telegram -->
+                <button onclick="openDailyReportModal()" class="px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 text-xs font-bold transition flex items-center gap-1.5 shadow-sm">
+                    <span>📊 Daily Report Card</span>
+                </button>
+                <button onclick="openTelegramModal()" class="px-3 py-1.5 rounded-xl bg-sky-600/20 hover:bg-sky-600/30 border border-sky-500/40 text-sky-300 text-xs font-bold transition flex items-center gap-1.5 shadow-sm">
+                    <span>🤖 Telegram Remote</span>
+                </button>
+
                 <!-- Live Clock & Schedule -->
                 <div class="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center gap-2 font-mono text-xs">
                     <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
                     <span id="liveClock" class="text-white font-bold">--:--:--</span>
                     <span class="text-slate-500">|</span>
-                    <span class="text-indigo-400">Curfew: <strong>21:00 Lock/Off</strong> → <strong class="text-emerald-400">08:00 AM Open</strong></span>
+                    <span class="text-indigo-400">Curfew: <strong>21:00</strong> → <strong class="text-emerald-400">08:00 AM</strong></span>
                 </div>
 
                 <div id="connectionBadge" class="px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold flex items-center gap-1.5">
@@ -52,7 +60,7 @@
 
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
         <!-- Master Metrics Strip -->
-        <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
             <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
                 <span class="text-xs text-slate-400 font-medium">Registered PCs</span>
                 <div id="statTotal" class="text-2xl font-extrabold text-white mt-1">0</div>
@@ -62,37 +70,60 @@
                 <div id="statOnline" class="text-2xl font-extrabold text-emerald-400 mt-1">0</div>
             </div>
             <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
-                <span class="text-xs text-rose-400 font-medium">Distracted / Reels</span>
+                <span class="text-xs text-rose-400 font-medium">Distracted (Reels)</span>
                 <div id="statDistracted" class="text-2xl font-extrabold text-rose-400 mt-1">0</div>
+            </div>
+            <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
+                <span class="text-xs text-indigo-400 font-medium">AI Productivity</span>
+                <div id="statProductivity" class="text-2xl font-extrabold text-indigo-300 mt-1">100%</div>
             </div>
             <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
                 <span class="text-xs text-amber-400 font-medium">Tampered / Silent</span>
                 <div id="statTampered" class="text-2xl font-extrabold text-amber-400 mt-1">0</div>
             </div>
-            <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 col-span-2 sm:col-span-1">
+            <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
                 <span class="text-xs text-purple-400 font-medium">Curfew Schedule</span>
-                <div id="statCurfew" class="text-sm font-bold text-purple-300 mt-2">21:00 - 08:00 AM</div>
+                <div id="statCurfew" class="text-xs font-bold text-purple-300 mt-2">21:00 - 08:00 AM</div>
             </div>
         </div>
 
         <!-- Master Command Control Bar -->
         <div class="bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-wrap items-center justify-between gap-3 shadow-xl">
             <div class="flex items-center gap-2">
-                <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Lab Master Controls:</span>
+                <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Institutional Controls:</span>
             </div>
 
             <div class="flex flex-wrap items-center gap-2">
+                <!-- Feature 2: Focus Mode Master Toggle -->
+                <button onclick="toggleFocusMode()" id="focusModeBtn" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-bold transition flex items-center gap-1.5 shadow-sm">
+                    <span>🎯 Focus Mode: OFF</span>
+                </button>
+
+                <!-- Feature 4: USB Storage Policy Master Toggle -->
+                <button onclick="toggleUsbPolicy()" id="usbPolicyBtn" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-bold transition flex items-center gap-1.5 shadow-sm">
+                    <span>💾 USB: ALLOWED</span>
+                </button>
+
+                <!-- Feature 3: File Broadcast & Collect -->
+                <button onclick="openBroadcastFileModal()" class="px-3.5 py-2 rounded-xl bg-teal-600/20 hover:bg-teal-600/30 border border-teal-500/40 text-teal-300 text-xs font-bold transition flex items-center gap-1.5 shadow-sm">
+                    <span>📤 Broadcast File</span>
+                </button>
+                <button onclick="openAssignmentsModal()" class="px-3.5 py-2 rounded-xl bg-cyan-600/20 hover:bg-cyan-600/30 border border-cyan-500/40 text-cyan-300 text-xs font-bold transition flex items-center gap-1.5 shadow-sm">
+                    <span>📥 Collect Assignments</span>
+                </button>
+
+                <!-- Master Push Power Actions -->
                 <button onclick="broadcastCommand('LOCK')" class="px-3.5 py-2 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/40 text-purple-300 text-xs font-bold transition flex items-center gap-1.5 shadow-sm">
-                    <span>🔒 Instant Lock All</span>
+                    <span>🔒 Lock All</span>
                 </button>
                 <button onclick="broadcastCommand('UNLOCK')" class="px-3.5 py-2 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 text-xs font-bold transition flex items-center gap-1.5 shadow-sm">
-                    <span>🔓 Instant Unlock All</span>
+                    <span>🔓 Unlock All</span>
                 </button>
                 <button onclick="confirmLabShutdown()" class="px-3.5 py-2 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/40 text-rose-300 text-xs font-bold transition flex items-center gap-1.5 shadow-sm">
-                    <span>⚡ Instant Shutdown All</span>
+                    <span>⚡ Shutdown All</span>
                 </button>
                 <button onclick="promptBroadcastMessage()" class="px-3.5 py-2 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 text-xs font-bold transition flex items-center gap-1.5 shadow-sm">
-                    <span>📢 Broadcast Message</span>
+                    <span>📢 Notice</span>
                 </button>
                 <button onclick="toggleCurfewOverride()" id="overrideBtn" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-semibold transition flex items-center gap-1.5">
                     <span>⚙️ Curfew Override</span>
@@ -264,6 +295,180 @@
         </div>
     </div>
 
+    <!-- 1. Daily Report Card Modal -->
+    <div id="dailyReportModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+        <div class="bg-slate-900 border border-slate-700 rounded-3xl max-w-3xl w-full p-5 sm:p-7 space-y-5 shadow-2xl my-auto">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-xl">
+                        📊
+                    </div>
+                    <div>
+                        <h3 class="text-base sm:text-lg font-bold text-white">Daily AI Productivity Report Card</h3>
+                        <p class="text-xs text-slate-400">As-Sunnah Computer Lab • Automated End-of-Day Audit</p>
+                    </div>
+                </div>
+                <button onclick="closeDailyReportModal()" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center text-sm font-bold transition">✕</button>
+            </div>
+
+            <!-- Report KPI Cards -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div class="bg-slate-950 p-3.5 rounded-xl border border-slate-800">
+                    <span class="text-[11px] text-slate-400">Lab Avg Score</span>
+                    <div id="repAvgScore" class="text-xl font-bold text-emerald-400 mt-0.5">--</div>
+                </div>
+                <div class="bg-slate-950 p-3.5 rounded-xl border border-slate-800">
+                    <span class="text-[11px] text-slate-400">Active Students</span>
+                    <div id="repTotalStudents" class="text-xl font-bold text-white mt-0.5">--</div>
+                </div>
+                <div class="bg-slate-950 p-3.5 rounded-xl border border-slate-800">
+                    <span class="text-[11px] text-emerald-400">Total Focused Time</span>
+                    <div id="repFocusedTime" class="text-xl font-bold text-emerald-300 mt-0.5">--</div>
+                </div>
+                <div class="bg-slate-950 p-3.5 rounded-xl border border-slate-800">
+                    <span class="text-[11px] text-rose-400">Distraction Time</span>
+                    <div id="repDistractedTime" class="text-xl font-bold text-rose-300 mt-0.5">--</div>
+                </div>
+            </div>
+
+            <!-- Leaderboard & Attention Lists -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <!-- Top Focused Students -->
+                <div class="bg-slate-950/70 p-4 rounded-2xl border border-slate-800/80 space-y-2">
+                    <h4 class="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                        <span>🏆</span> Top Focused Students
+                    </h4>
+                    <div id="repTopFocusedList" class="space-y-1.5 text-xs font-mono">
+                        <div class="text-slate-500 py-3 text-center">Loading report...</div>
+                    </div>
+                </div>
+
+                <!-- Distraction / Needs Attention -->
+                <div class="bg-slate-950/70 p-4 rounded-2xl border border-slate-800/80 space-y-2">
+                    <h4 class="text-xs font-bold text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
+                        <span>⚠️</span> Distraction Flags
+                    </h4>
+                    <div id="repTopDistractedList" class="space-y-1.5 text-xs font-mono">
+                        <div class="text-slate-500 py-3 text-center">Loading report...</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex justify-between items-center pt-2 border-t border-slate-800/80">
+                <span id="repGeneratedAt" class="text-[11px] text-slate-500 font-mono"></span>
+                <button onclick="closeDailyReportModal()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. Central File Broadcast Modal -->
+    <div id="broadcastFileModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-700 rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
+            <div class="flex items-center justify-between pb-2 border-b border-slate-800">
+                <div class="flex items-center gap-2.5">
+                    <span class="text-xl">📤</span>
+                    <h3 class="text-base font-bold text-white">Broadcast File to Lab PCs</h3>
+                </div>
+                <button onclick="closeBroadcastFileModal()" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center text-sm font-bold">✕</button>
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-slate-400 mb-1">Target Filename</label>
+                <input type="text" id="broadcastFileName" placeholder="e.g. lab_exercise_04.py, lecture_notes.txt" class="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-teal-500 font-mono" />
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-slate-400 mb-1">Code / File Content (or Paste Text)</label>
+                <textarea id="broadcastFileContent" rows="6" placeholder="# Paste Python code, lab tasks, or markdown content to send to student workstations..." class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-teal-500 font-mono"></textarea>
+            </div>
+            <div class="flex justify-end gap-2 pt-2 border-t border-slate-800">
+                <button onclick="closeBroadcastFileModal()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300">Cancel</button>
+                <button onclick="submitBroadcastFile()" class="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-xs font-bold text-white">Broadcast to All PCs</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. Collected Assignments Modal -->
+    <div id="assignmentsModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+        <div class="bg-slate-900 border border-slate-700 rounded-3xl max-w-3xl w-full p-5 sm:p-6 space-y-4 shadow-2xl my-auto">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                <div class="flex items-center gap-3">
+                    <span class="text-xl">📥</span>
+                    <div>
+                        <h3 class="text-base font-bold text-white">Central Assignment Submissions</h3>
+                        <p class="text-xs text-slate-400">Collected student project files from lab workstations</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="triggerCollectAssignments()" class="px-3 py-1.5 rounded-xl bg-cyan-600/20 hover:bg-cyan-600/30 border border-cyan-500/40 text-cyan-300 text-xs font-bold transition flex items-center gap-1">
+                        <span>⚡</span> Trigger Collect All
+                    </button>
+                    <button onclick="closeAssignmentsModal()" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center text-sm font-bold">✕</button>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto rounded-xl border border-slate-800">
+                <table class="w-full text-left text-xs border-collapse">
+                    <thead>
+                        <tr class="bg-slate-950 text-slate-400 border-b border-slate-800 font-mono text-[11px]">
+                            <th class="py-2.5 px-3">Student & PC</th>
+                            <th class="py-2.5 px-3">Filename</th>
+                            <th class="py-2.5 px-3">Size</th>
+                            <th class="py-2.5 px-3 text-right">Submitted At</th>
+                        </tr>
+                    </thead>
+                    <tbody id="assignmentsTableBody" class="divide-y divide-slate-800/60 font-mono">
+                        <tr>
+                            <td colspan="4" class="py-8 text-center text-slate-500 font-sans">
+                                Click "Trigger Collect All" to fetch student assignment files from workstations.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="flex justify-end pt-2">
+                <button onclick="closeAssignmentsModal()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 4. Telegram Remote Control Simulator Modal -->
+    <div id="telegramModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-6">
+        <div class="bg-slate-900 border border-slate-700 rounded-3xl max-w-xl w-full p-5 sm:p-6 space-y-4 shadow-2xl">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                <div class="flex items-center gap-2.5">
+                    <span class="text-2xl">🤖</span>
+                    <div>
+                        <h3 class="text-base font-bold text-white">Telegram Remote Control Simulator</h3>
+                        <p class="text-xs text-sky-400 font-mono" id="telegramConfigStatus">Bot Integration Active</p>
+                    </div>
+                </div>
+                <button onclick="closeTelegramModal()" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center text-sm font-bold">✕</button>
+            </div>
+
+            <!-- Quick Command Shortcuts -->
+            <div class="flex flex-wrap gap-1.5 text-xs">
+                <button onclick="runTelegramCmd('/status')" class="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 hover:border-sky-500/50 text-slate-300 font-mono">/status</button>
+                <button onclick="runTelegramCmd('/report')" class="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 hover:border-sky-500/50 text-slate-300 font-mono">/report</button>
+                <button onclick="runTelegramCmd('/focus on')" class="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 hover:border-sky-500/50 text-slate-300 font-mono">/focus on</button>
+                <button onclick="runTelegramCmd('/focus off')" class="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 hover:border-sky-500/50 text-slate-300 font-mono">/focus off</button>
+                <button onclick="runTelegramCmd('/usb lock')" class="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 hover:border-sky-500/50 text-slate-300 font-mono">/usb lock</button>
+                <button onclick="runTelegramCmd('/curfew toggle')" class="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 hover:border-sky-500/50 text-slate-300 font-mono">/curfew toggle</button>
+                <button onclick="runTelegramCmd('/lockall')" class="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 hover:border-purple-500/50 text-purple-300 font-mono">/lockall</button>
+                <button onclick="runTelegramCmd('/unlockall')" class="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 hover:border-emerald-500/50 text-emerald-300 font-mono">/unlockall</button>
+            </div>
+
+            <!-- Console Terminal Window -->
+            <div class="bg-black/90 rounded-2xl p-4 border border-slate-800 font-mono text-xs text-slate-300 h-56 overflow-y-auto whitespace-pre-wrap shadow-inner" id="telegramConsoleOutput">[Telegram Remote Bot Initialized]
+Type a slash command or click one above to test...</div>
+
+            <!-- Command Input Box -->
+            <div class="flex gap-2">
+                <input type="text" id="telegramInput" onkeydown="if(event.key==='Enter') sendTelegramInput()" placeholder="Type command, e.g. /status or /report..." class="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-sky-500" />
+                <button onclick="sendTelegramInput()" class="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-xs font-bold text-white">Send</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         let ws;
         let clusterData = { workstations: [], alerts: [] };
@@ -316,7 +521,32 @@
             document.getElementById('statOnline').innerText = data.total_online;
             document.getElementById('statDistracted').innerText = data.total_distracted;
             document.getElementById('statTampered').innerText = data.total_tampered;
+            document.getElementById('statProductivity').innerText = (data.lab_average_productivity !== undefined ? data.lab_average_productivity : 100) + '%';
             document.getElementById('gridCountBadge').innerText = `${data.workstations.length} PCs`;
+
+            // Update Focus Mode Button
+            const focusBtn = document.getElementById('focusModeBtn');
+            if (focusBtn) {
+                if (data.focus_mode_active) {
+                    focusBtn.className = 'px-3.5 py-2 rounded-xl bg-teal-600/30 hover:bg-teal-600/40 border border-teal-500 text-teal-300 text-xs font-bold transition flex items-center gap-1.5 shadow-lg shadow-teal-950/40 animate-pulse';
+                    focusBtn.innerHTML = '<span>🎯 Focus Mode: ON</span>';
+                } else {
+                    focusBtn.className = 'px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-bold transition flex items-center gap-1.5 shadow-sm';
+                    focusBtn.innerHTML = '<span>🎯 Focus Mode: OFF</span>';
+                }
+            }
+
+            // Update USB Storage Policy Button
+            const usbBtn = document.getElementById('usbPolicyBtn');
+            if (usbBtn) {
+                if (data.usb_storage_blocked) {
+                    usbBtn.className = 'px-3.5 py-2 rounded-xl bg-amber-600/30 hover:bg-amber-600/40 border border-amber-500 text-amber-300 text-xs font-bold transition flex items-center gap-1.5 shadow-lg';
+                    usbBtn.innerHTML = '<span>🔒 USB: BLOCKED</span>';
+                } else {
+                    usbBtn.className = 'px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-bold transition flex items-center gap-1.5 shadow-sm';
+                    usbBtn.innerHTML = '<span>💾 USB: ALLOWED</span>';
+                }
+            }
 
             if (data.audit_log) {
                 renderAuditLog(data.audit_log);
@@ -372,6 +602,26 @@
                 const ram = t.ram_percent ? t.ram_percent.toFixed(0) : 0;
                 const windowTitle = t.active_window_title || 'Idle / Background';
 
+                // Productivity Score Styling
+                const score = pc.productivity_score !== undefined ? pc.productivity_score : 100;
+                let scoreTextClass = 'text-emerald-400';
+                let scoreBarClass = 'bg-emerald-500';
+                if (score < 50) {
+                    scoreTextClass = 'text-rose-400';
+                    scoreBarClass = 'bg-rose-500';
+                } else if (score < 80) {
+                    scoreTextClass = 'text-amber-400';
+                    scoreBarClass = 'bg-amber-500';
+                }
+
+                const usbBadge = pc.usb_blocked
+                    ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">🔒 USB Blocked</span>'
+                    : '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-400">💾 USB Allowed</span>';
+
+                const focusBadge = data.focus_mode_active
+                    ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-500/20 text-teal-300 border border-teal-500/30">🎯 Focus Active</span>'
+                    : '';
+
                 return `
                     <div class="bg-slate-900/90 border ${borderClass} rounded-2xl p-4 sm:p-5 flex flex-col justify-between space-y-4 hover:border-slate-700 transition">
                         <div>
@@ -380,11 +630,25 @@
                                     <h4 class="font-bold text-base text-white font-mono">${pc.client_id}</h4>
                                     <p class="text-xs text-slate-400">${pc.student_name} • <span class="text-slate-500">${pc.ip_address}</span></p>
                                 </div>
-                                ${statusBadge}
+                                <div class="flex flex-col items-end gap-1">
+                                    ${statusBadge}
+                                    <div class="flex items-center gap-1">${focusBadge} ${usbBadge}</div>
+                                </div>
+                            </div>
+
+                            <!-- AI Productivity Score Bar -->
+                            <div class="bg-slate-950 p-2.5 rounded-xl border border-slate-800/80 mb-3">
+                                <div class="flex items-center justify-between text-xs font-mono mb-1">
+                                    <span class="text-slate-400 font-sans">AI Productivity</span>
+                                    <span class="font-bold ${scoreTextClass}">${score}% Focused</span>
+                                </div>
+                                <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                                    <div class="${scoreBarClass} h-1.5 rounded-full transition-all duration-500" style="width: ${score}%"></div>
+                                </div>
                             </div>
 
                             <!-- Hardware Metrics -->
-                            <div class="grid grid-cols-2 gap-2 my-3 text-xs font-mono">
+                            <div class="grid grid-cols-2 gap-2 my-2 text-xs font-mono">
                                 <div class="bg-slate-950 p-2 rounded-xl border border-slate-800/80">
                                     <div class="flex justify-between text-slate-400 mb-1"><span>CPU</span><span>${cpu}%</span></div>
                                     <div class="w-full bg-slate-800 h-1 rounded-full overflow-hidden">
@@ -714,6 +978,213 @@
                 }
             } catch (err) {
                 console.error('Failed to fetch audit log:', err);
+            }
+        }
+
+        // ==============================================================================
+        // Feature 1: Daily Report Modal Handlers
+        // ==============================================================================
+        async function openDailyReportModal() {
+            document.getElementById('dailyReportModal').classList.remove('hidden');
+            try {
+                const res = await fetch('/api/admin/reports/daily');
+                if (res.ok) {
+                    const rep = await res.json();
+                    document.getElementById('repAvgScore').innerText = rep.lab_average_score + '/100';
+                    document.getElementById('repTotalStudents').innerText = rep.total_students;
+                    document.getElementById('repFocusedTime').innerText = rep.total_focused_minutes + ' min';
+                    document.getElementById('repDistractedTime').innerText = rep.total_distraction_minutes + ' min';
+                    document.getElementById('repGeneratedAt').innerText = 'Generated: ' + new Date(rep.generated_at).toLocaleString();
+
+                    const topFocusedList = document.getElementById('repTopFocusedList');
+                    if (!rep.top_focused_students || rep.top_focused_students.length === 0) {
+                        topFocusedList.innerHTML = '<div class="text-slate-500 py-3 text-center font-sans">No student telemetry logged yet.</div>';
+                    } else {
+                        topFocusedList.innerHTML = rep.top_focused_students.map((s, i) => `
+                            <div class="flex items-center justify-between p-2 rounded-xl bg-slate-900 border border-slate-800">
+                                <div class="flex items-center gap-2">
+                                    <span class="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold text-[10px] flex items-center justify-center">${i+1}</span>
+                                    <div>
+                                        <div class="font-bold text-white">${s.student_name}</div>
+                                        <div class="text-[10px] text-slate-500">${s.client_id} • ${s.top_used_app}</div>
+                                    </div>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-emerald-400 font-bold">${s.productivity_score}%</div>
+                                    <div class="text-[10px] text-slate-400">${s.formatted_focused_time}</div>
+                                </div>
+                            </div>
+                        `).join('');
+                    }
+
+                    const topDistractList = document.getElementById('repTopDistractedList');
+                    if (!rep.top_distracted_students || rep.top_distracted_students.length === 0) {
+                        topDistractList.innerHTML = '<div class="text-emerald-400/80 py-3 text-center font-sans">Zero distraction incidents! Perfect focus across all PCs.</div>';
+                    } else {
+                        topDistractList.innerHTML = rep.top_distracted_students.map(s => `
+                            <div class="flex items-center justify-between p-2 rounded-xl bg-slate-900 border border-rose-950/40">
+                                <div>
+                                    <div class="font-bold text-rose-300">${s.student_name}</div>
+                                    <div class="text-[10px] text-slate-500">${s.client_id} • Violations: ${s.violation_count}</div>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-rose-400 font-bold">${s.formatted_distraction_time}</div>
+                                    <div class="text-[10px] text-slate-500">Score: ${s.productivity_score}%</div>
+                                </div>
+                            </div>
+                        `).join('');
+                    }
+                }
+            } catch (err) {
+                console.error('Failed to load report:', err);
+            }
+        }
+
+        function closeDailyReportModal() {
+            document.getElementById('dailyReportModal').classList.add('hidden');
+        }
+
+        // ==============================================================================
+        // Feature 2: One-Click Focus Mode Toggle Handler
+        // ==============================================================================
+        async function toggleFocusMode() {
+            const newState = !(clusterData.focus_mode_active);
+            try {
+                const res = await fetch('/api/admin/focus-mode/toggle', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ active: newState, reason: 'Instructor manual switch' })
+                });
+                const d = await res.json();
+                alert(`Focus Mode ${d.focus_mode_active ? 'ENABLED (Distractions Blocked) 🎯' : 'DISABLED 🔓'} across ${d.workstations_updated} workstation(s).`);
+            } catch (e) {
+                alert('Focus mode toggle failed: ' + e.message);
+            }
+        }
+
+        // ==============================================================================
+        // Feature 3: Central File Broadcast & Assignment Collection Handlers
+        // ==============================================================================
+        function openBroadcastFileModal() {
+            document.getElementById('broadcastFileModal').classList.remove('hidden');
+        }
+        function closeBroadcastFileModal() {
+            document.getElementById('broadcastFileModal').classList.add('hidden');
+        }
+        async function submitBroadcastFile() {
+            const name = document.getElementById('broadcastFileName').value.trim();
+            const content = document.getElementById('broadcastFileContent').value;
+            if (!name) { alert('Please enter a target filename (e.g. lab_exercise.py)'); return; }
+            const b64 = btoa(unescape(encodeURIComponent(content || '')));
+            try {
+                const res = await fetch('/api/admin/files/broadcast', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filename: name, file_content_base64: b64, sender: 'Lab Instructor' })
+                });
+                const d = await res.json();
+                alert(`File '${name}' successfully broadcasted to ${d.dispatched_count} active workstation(s)!`);
+                closeBroadcastFileModal();
+            } catch (e) {
+                alert('Broadcast failed: ' + e.message);
+            }
+        }
+
+        function openAssignmentsModal() {
+            document.getElementById('assignmentsModal').classList.remove('hidden');
+            loadAssignmentsList();
+        }
+        function closeAssignmentsModal() {
+            document.getElementById('assignmentsModal').classList.add('hidden');
+        }
+        async function triggerCollectAssignments() {
+            try {
+                const res = await fetch('/api/admin/files/collect', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ assignment_name: 'submission.py' })
+                });
+                const d = await res.json();
+                alert(`Collection directive dispatched to ${d.dispatched_count} workstation(s). Files will populate shortly.`);
+                setTimeout(loadAssignmentsList, 1500);
+            } catch (e) {
+                alert('Collect assignments error: ' + e.message);
+            }
+        }
+        async function loadAssignmentsList() {
+            try {
+                const res = await fetch('/api/admin/files/collected');
+                if (res.ok) {
+                    const list = await res.json();
+                    const tbody = document.getElementById('assignmentsTableBody');
+                    if (list.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="4" class="py-8 text-center text-slate-500 font-sans">No assignment files collected yet. Click "Trigger Collect All" to fetch.</td></tr>';
+                        return;
+                    }
+                    tbody.innerHTML = list.map(item => `
+                        <tr class="hover:bg-slate-800/40 transition">
+                            <td class="py-2.5 px-3 font-bold text-white">${item.student_name} <span class="text-[10px] text-slate-500">(${item.client_id})</span></td>
+                            <td class="py-2.5 px-3 text-cyan-300 font-semibold">${item.filename}</td>
+                            <td class="py-2.5 px-3 text-slate-400">${item.size_bytes} Bytes</td>
+                            <td class="py-2.5 px-3 text-right text-slate-400">${new Date(item.submitted_at).toLocaleTimeString()}</td>
+                        </tr>
+                    `).join('');
+                }
+            } catch (err) {
+                console.error('Failed to load assignments list:', err);
+            }
+        }
+
+        // ==============================================================================
+        // Feature 4: USB Storage Policy Toggle Handler
+        // ==============================================================================
+        async function toggleUsbPolicy() {
+            const newBlocked = !(clusterData.usb_storage_blocked);
+            try {
+                const res = await fetch('/api/admin/usb-policy/toggle', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ blocked: newBlocked })
+                });
+                const d = await res.json();
+                alert(`USB Mass Storage Policy updated: ${d.usb_storage_blocked ? 'BLOCKED 🔒' : 'ALLOWED 💾'} across ${d.workstations_updated} workstation(s).`);
+            } catch (e) {
+                alert('USB policy toggle failed: ' + e.message);
+            }
+        }
+
+        // ==============================================================================
+        // Feature 5: Telegram Remote Control Simulator Handlers
+        // ==============================================================================
+        function openTelegramModal() {
+            document.getElementById('telegramModal').classList.remove('hidden');
+        }
+        function closeTelegramModal() {
+            document.getElementById('telegramModal').classList.add('hidden');
+        }
+        async function runTelegramCmd(cmdText) {
+            const consoleOut = document.getElementById('telegramConsoleOutput');
+            consoleOut.innerText += `\n\n> ${cmdText}\n[Executing command...]`;
+            consoleOut.scrollTop = consoleOut.scrollHeight;
+            try {
+                const res = await fetch('/api/admin/telegram/simulate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ command: cmdText, user_name: 'Instructor Web Console' })
+                });
+                const d = await res.json();
+                consoleOut.innerText += `\n${d.response}`;
+                consoleOut.scrollTop = consoleOut.scrollHeight;
+            } catch (e) {
+                consoleOut.innerText += `\nError: ${e.message}`;
+            }
+        }
+        function sendTelegramInput() {
+            const inp = document.getElementById('telegramInput');
+            const val = inp.value.trim();
+            if (val) {
+                runTelegramCmd(val);
+                inp.value = '';
             }
         }
 

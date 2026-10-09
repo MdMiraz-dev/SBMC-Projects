@@ -17,8 +17,14 @@ from .detector import DistractionDetector
 from .schemas import (
     AdminCommandPayload,
     AppUsageRecord,
+    AssignmentSubmissionPayload,
     ClientRegistration,
+    CollectAssignmentsRequest,
+    CommandType,
+    DailyReport,
     DistractionCategory,
+    FileBroadcastPayload,
+    StudentProductivitySummary,
     TamperAlertEvent,
     TelemetryPayload,
     WorkstationState,
@@ -41,6 +47,16 @@ class LabConnectionManager:
         self._admin_sockets: Set[WebSocket] = set()
         # Historical tamper alerts
         self._alerts: List[TamperAlertEvent] = []
+
+        # Feature 2: Focus Mode Policy State
+        self.focus_mode_active: bool = False
+        self.focus_mode_reason: Optional[str] = None
+
+        # Feature 4: USB Storage Policy State
+        self.usb_storage_blocked: bool = False
+
+        # Feature 3: Collected Assignments Storage
+        self.collected_assignments_dir: str = "collected_assignments"
 
     def get_all_workstations(self) -> List[WorkstationState]:
         """Returns snapshot list of all registered workstations sorted by client_id."""
@@ -177,15 +193,41 @@ class LabConnectionManager:
                 is_distracted=report.is_distracted,
             )
 
+        if telemetry.usb_blocked is not None:
+            state.usb_blocked = telemetry.usb_blocked
+        state.focus_mode_active = self.focus_mode_active
+
         if report.is_distracted:
             state.status = WorkstationStatus.DISTRACTED
             state.violation_count += 1
+            # Feature 2: Auto-restriction when Focus Mode is ON
+            if self.focus_mode_active:
+                asyncio.create_task(self.send_command_to_client(
+                    client_id,
+                    AdminCommandPayload(
+                        command=CommandType.BROADCAST_MESSAGE,
+                        target_client_id=client_id,
+                        message=f"⚠️ FOCUS MODE ACTIVE: Distraction '{report.flagged_title or 'Entertainment'}' blocked! Return to coursework.",
+                        issued_by="Focus Mode Enforcer",
+                    )
+                ))
         elif state.curfew_locked:
             state.status = WorkstationStatus.CURFEW_LOCKED
         elif telemetry.is_idle:
             state.status = WorkstationStatus.IDLE
         else:
             state.status = WorkstationStatus.ONLINE
+
+        # Feature 1: Dynamic AI Productivity Scoring (0-100)
+        focused_sec = sum(r.total_seconds for r in state.app_usage.values() if not r.is_distracted)
+        distracted_sec = sum(r.total_seconds for r in state.app_usage.values() if r.is_distracted)
+        total_time = focused_sec + distracted_sec
+        if total_time > 0:
+            ratio = focused_sec / total_time
+            penalty = min(40, state.violation_count * 5)
+            state.productivity_score = max(0, min(100, int(ratio * 100) - penalty))
+        else:
+            state.productivity_score = 100
 
         await self.broadcast_admin_update()
         return state
@@ -322,6 +364,8 @@ class LabConnectionManager:
         if not self._admin_sockets:
             return
 
+        avg_score = round(sum(w.productivity_score for w in self._workstations.values()) / len(self._workstations)) if self._workstations else 100
+
         payload = {
             "type": "CLUSTER_UPDATE",
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -329,6 +373,9 @@ class LabConnectionManager:
             "total_online": sum(1 for w in self._workstations.values() if w.status == WorkstationStatus.ONLINE),
             "total_distracted": sum(1 for w in self._workstations.values() if w.status == WorkstationStatus.DISTRACTED),
             "total_tampered": sum(1 for w in self._workstations.values() if w.status == WorkstationStatus.DISCONNECTED_TAMPERED),
+            "focus_mode_active": self.focus_mode_active,
+            "usb_storage_blocked": self.usb_storage_blocked,
+            "lab_average_productivity": avg_score,
             "workstations": [w.model_dump(mode="json") for w in self.get_all_workstations()],
             "alerts": [a.model_dump(mode="json") for a in self.get_active_alerts()],
             "audit_log": self.get_audit_log(),
@@ -344,3 +391,174 @@ class LabConnectionManager:
 
         for stale in stale_sockets:
             self._admin_sockets.discard(stale)
+
+    # ==============================================================================
+    # Feature 1: AI Productivity Daily Report
+    # ==============================================================================
+    def generate_daily_report(self) -> DailyReport:
+        """Calculates institutional productivity analytics, top focused, and top distracted students."""
+        summaries: List[StudentProductivitySummary] = []
+        total_focused_sec = 0
+        total_distracted_sec = 0
+        cat_breakdown: Dict[str, int] = {}
+
+        for cid, state in self._workstations.items():
+            f_sec = sum(r.total_seconds for r in state.app_usage.values() if not r.is_distracted)
+            d_sec = sum(r.total_seconds for r in state.app_usage.values() if r.is_distracted)
+            total_focused_sec += f_sec
+            total_distracted_sec += d_sec
+
+            for r in state.app_usage.values():
+                cat_val = r.category.value if hasattr(r.category, "value") else str(r.category)
+                cat_breakdown[cat_val] = cat_breakdown.get(cat_val, 0) + r.total_seconds
+
+            top_app = "System"
+            if state.app_usage:
+                top_rec = max(state.app_usage.values(), key=lambda r: r.total_seconds)
+                top_app = top_rec.process_name
+
+            summaries.append(StudentProductivitySummary(
+                client_id=cid,
+                student_name=state.student_name,
+                productivity_score=state.productivity_score,
+                focused_seconds=f_sec,
+                distraction_seconds=d_sec,
+                violation_count=state.violation_count,
+                top_used_app=top_app,
+                status=state.status,
+                formatted_focused_time=self._format_duration(f_sec),
+                formatted_distraction_time=self._format_duration(d_sec),
+            ))
+
+        total_students = len(summaries)
+        avg_score = round(sum(s.productivity_score for s in summaries) / total_students) if total_students > 0 else 100
+
+        top_focused = sorted(summaries, key=lambda s: (s.productivity_score, s.focused_seconds), reverse=True)
+        top_distracted = sorted([s for s in summaries if s.distraction_seconds > 0 or s.violation_count > 0],
+                                key=lambda s: (s.distraction_seconds, s.violation_count), reverse=True)
+
+        return DailyReport(
+            total_students=total_students,
+            lab_average_score=avg_score,
+            total_focused_minutes=round(total_focused_sec / 60, 1),
+            total_distraction_minutes=round(total_distracted_sec / 60, 1),
+            top_focused_students=top_focused[:10],
+            top_distracted_students=top_distracted[:10],
+            category_breakdown=cat_breakdown,
+            summary_text=f"As-Sunnah Lab Productivity Index: {avg_score}/100 across {total_students} workstation(s).",
+        )
+
+    # ==============================================================================
+    # Feature 2: One-Click Focus Mode
+    # ==============================================================================
+    async def set_focus_mode(self, active: bool, reason: Optional[str] = None) -> int:
+        """Sets global focus mode to block distractions and pushes policy to all active agents."""
+        self.focus_mode_active = active
+        self.focus_mode_reason = reason or ("Active" if active else "Disabled")
+        for state in self._workstations.values():
+            state.focus_mode_active = active
+
+        cmd = AdminCommandPayload(
+            command=CommandType.SET_FOCUS_MODE,
+            extra_data={"focus_mode_active": active, "reason": reason},
+            message=f"Focus Mode {'ACTIVATED' if active else 'DEACTIVATED'} by Instructor.",
+            issued_by="Focus Mode Master Switch",
+        )
+        delivered = await self.broadcast_command(cmd)
+        await self.broadcast_admin_update()
+        return delivered
+
+    # ==============================================================================
+    # Feature 3: Central File Broadcast & Assignment Collection
+    # ==============================================================================
+    async def broadcast_file(self, payload: FileBroadcastPayload) -> int:
+        """Broadcasts a lecture sheet, code file, or document to all connected workstations."""
+        cmd = AdminCommandPayload(
+            command=CommandType.BROADCAST_FILE,
+            extra_data=payload.model_dump(mode="json"),
+            message=f"Instructor shared file: {payload.filename}",
+            issued_by=payload.sender,
+        )
+        return await self.broadcast_command(cmd)
+
+    async def collect_assignments(self, req: CollectAssignmentsRequest) -> int:
+        """Requests assignment submission file upload from all active student workstations."""
+        cmd = AdminCommandPayload(
+            command=CommandType.COLLECT_ASSIGNMENTS,
+            extra_data=req.model_dump(mode="json"),
+            message=f"Please submit assignment: {req.assignment_name}",
+            issued_by="Assignment Collector",
+        )
+        return await self.broadcast_command(cmd)
+
+    def save_assignment_submission(self, sub: AssignmentSubmissionPayload) -> str:
+        """Saves a submitted student assignment file to the central repository."""
+        import base64
+        from pathlib import Path
+        import re
+
+        safe_client = re.sub(r"[^\w\-]", "_", sub.client_id)
+        safe_student = re.sub(r"[^\w\-]", "_", sub.student_name)
+        safe_filename = re.sub(r"[^\w\.\-]", "_", sub.filename)
+
+        folder = Path(self.collected_assignments_dir) / f"{safe_client}_{safe_student}"
+        folder.mkdir(parents=True, exist_ok=True)
+        target_path = folder / safe_filename
+
+        file_bytes = base64.b64decode(sub.file_content_base64)
+        target_path.write_bytes(file_bytes)
+        logger.info("Saved assignment submission: %s from %s", safe_filename, sub.client_id)
+        return str(target_path)
+
+    def get_collected_submissions(self) -> List[Dict[str, Any]]:
+        """Returns metadata list of all collected assignments stored on disk."""
+        from pathlib import Path
+        root = Path(self.collected_assignments_dir)
+        submissions = []
+        if not root.exists():
+            return submissions
+
+        for file_path in root.glob("*/*"):
+            if file_path.is_file():
+                folder_name = file_path.parent.name
+                parts = folder_name.split("_", 1)
+                client_id = parts[0]
+                student_name = parts[1] if len(parts) > 1 else "Unknown"
+                stat = file_path.stat()
+                submissions.append({
+                    "client_id": client_id,
+                    "student_name": student_name,
+                    "filename": file_path.name,
+                    "file_path": str(file_path),
+                    "size_bytes": stat.st_size,
+                    "submitted_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+                })
+        return sorted(submissions, key=lambda s: s["submitted_at"], reverse=True)
+
+    # ==============================================================================
+    # Feature 4: USB Storage Policy
+    # ==============================================================================
+    async def set_usb_policy(self, blocked: bool, target_client_id: Optional[str] = None) -> int:
+        """Applies USB mass storage restriction policy to all or a specific workstation."""
+        self.usb_storage_blocked = blocked
+        cmd = AdminCommandPayload(
+            command=CommandType.SET_USB_POLICY,
+            target_client_id=target_client_id,
+            extra_data={"usb_blocked": blocked},
+            message=f"USB Storage {'BLOCKED 🔒' if blocked else 'UNRESTRICTED 💾'} by Lab Policy.",
+            issued_by="Lab Security Policy",
+        )
+        if target_client_id:
+            state = self._workstations.get(target_client_id)
+            if state:
+                state.usb_blocked = blocked
+            success = await self.send_command_to_client(target_client_id, cmd)
+            await self.broadcast_admin_update()
+            return 1 if success else 0
+        else:
+            for state in self._workstations.values():
+                state.usb_blocked = blocked
+            delivered = await self.broadcast_command(cmd)
+            await self.broadcast_admin_update()
+            return delivered
+

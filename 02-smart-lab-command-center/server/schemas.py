@@ -29,6 +29,10 @@ class CommandType(str, Enum):
     BROADCAST_MESSAGE = "BROADCAST_MESSAGE"
     KILL_PROCESS = "KILL_PROCESS"
     CAPTURE_SCREEN = "CAPTURE_SCREEN"
+    BROADCAST_FILE = "BROADCAST_FILE"
+    COLLECT_ASSIGNMENTS = "COLLECT_ASSIGNMENTS"
+    SET_USB_POLICY = "SET_USB_POLICY"
+    SET_FOCUS_MODE = "SET_FOCUS_MODE"
 
 
 class DistractionCategory(str, Enum):
@@ -77,6 +81,7 @@ class TelemetryPayload(BaseModel):
     active_process_name: str = Field(default="", max_length=128)
     is_idle: bool = Field(default=False)
     screen_thumbnail: Optional[str] = Field(default=None, description="Base64 encoded JPEG thumbnail data URI")
+    usb_blocked: Optional[bool] = Field(default=False, description="Current USB mass storage block policy")
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @field_validator("active_window_title", "active_process_name")
@@ -109,6 +114,9 @@ class WorkstationState(BaseModel):
     distraction_report: Optional[DistractionReport] = None
     violation_count: int = 0
     curfew_locked: bool = False
+    productivity_score: int = 100
+    usb_blocked: bool = False
+    focus_mode_active: bool = False
     app_usage: Dict[str, "AppUsageRecord"] = Field(default_factory=dict)
 
 
@@ -132,6 +140,7 @@ class AdminCommandPayload(BaseModel):
     message: Optional[str] = Field(default=None, max_length=512, description="Pop-up message text for students")
     duration_seconds: Optional[int] = Field(default=None, ge=1, le=86400)
     target_process: Optional[str] = Field(default=None, max_length=128)
+    extra_data: Optional[Dict[str, Any]] = Field(default=None, description="Optional extra data (file payload, usb settings)")
     issued_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     issued_by: str = Field(default="Lab Admin", max_length=64)
 
@@ -166,3 +175,97 @@ class CurfewConfig(BaseModel):
         if not re.match(r"^([01]\d|2[0-3]):([0-5]\d)$", v):
             raise ValueError(f"Invalid time format '{v}'. Expected 24-hour HH:MM format.")
         return v
+
+
+# ==============================================================================
+# Feature 1: Productivity & Daily Report Models
+# ==============================================================================
+
+class StudentProductivitySummary(BaseModel):
+    """Productivity report card metrics for an individual student."""
+    client_id: str
+    student_name: str
+    productivity_score: int = Field(..., ge=0, le=100)
+    focused_seconds: int = 0
+    distraction_seconds: int = 0
+    violation_count: int = 0
+    top_used_app: str = "System"
+    status: WorkstationStatus = WorkstationStatus.ONLINE
+    formatted_focused_time: str = "0s"
+    formatted_distraction_time: str = "0s"
+
+
+class DailyReport(BaseModel):
+    """Consolidated institutional end-of-day productivity audit report."""
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    total_students: int = 0
+    lab_average_score: int = 100
+    total_focused_minutes: float = 0.0
+    total_distraction_minutes: float = 0.0
+    top_focused_students: List[StudentProductivitySummary] = Field(default_factory=list)
+    top_distracted_students: List[StudentProductivitySummary] = Field(default_factory=list)
+    category_breakdown: Dict[str, int] = Field(default_factory=dict)
+    summary_text: str = ""
+
+
+# ==============================================================================
+# Feature 2: Focus Mode Request
+# ==============================================================================
+
+class FocusModeRequest(BaseModel):
+    """Payload to toggle global distraction blocking focus mode."""
+    active: bool
+    reason: Optional[str] = "Instructor focused coding session"
+
+
+# ==============================================================================
+# Feature 3: Central File Broadcast & Assignment Collection Models
+# ==============================================================================
+
+class FileBroadcastPayload(BaseModel):
+    """Payload for broadcasting lecture sheets or starter code to workstations."""
+    filename: str = Field(..., min_length=1, max_length=256)
+    file_content_base64: str = Field(..., min_length=1)
+    target_folder: str = Field(default="lab_materials", max_length=128)
+    sender: str = Field(default="Lab Instructor", max_length=64)
+    file_size_bytes: int = 0
+    description: Optional[str] = None
+
+
+class AssignmentSubmissionPayload(BaseModel):
+    """Workstation-to-server assignment file upload payload."""
+    client_id: str
+    student_name: str
+    filename: str
+    file_content_base64: str
+    file_size_bytes: int = 0
+    submitted_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class CollectAssignmentsRequest(BaseModel):
+    """Instructor directive to fetch student assignments from all PCs."""
+    assignment_name: str = Field(default="submission.py", max_length=128)
+    folder_path: str = Field(default="assignments", max_length=128)
+
+
+# ==============================================================================
+# Feature 4: USB Storage Policy Request
+# ==============================================================================
+
+class UsbPolicyRequest(BaseModel):
+    """Policy request to block or allow USB mass storage."""
+    blocked: bool
+    target_client_id: Optional[str] = None
+    reason: Optional[str] = "As-Sunnah Lab anti-malware and integrity policy"
+
+
+# ==============================================================================
+# Feature 5: Telegram Remote Control Simulator
+# ==============================================================================
+
+class TelegramSimulateRequest(BaseModel):
+    """Simulates a Telegram bot slash command via HTTP for testing and dashboard control."""
+    command: str = Field(..., description="e.g. /status, /lockall, /unlockall, /curfew, /report, /focus on")
+    chat_id: Optional[str] = "admin_chat"
+    user_name: Optional[str] = "LabInstructor"
+

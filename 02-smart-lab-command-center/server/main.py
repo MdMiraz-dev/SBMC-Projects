@@ -24,12 +24,21 @@ from .detector import DistractionDetector
 from .manager import LabConnectionManager
 from .schemas import (
     AdminCommandPayload,
+    AssignmentSubmissionPayload,
     ClientRegistration,
+    CollectAssignmentsRequest,
     CommandType,
     CurfewConfig,
+    DailyReport,
+    FileBroadcastPayload,
+    FocusModeRequest,
+    TelegramSimulateRequest,
     TelemetryPayload,
+    UsbPolicyRequest,
     WorkstationState,
 )
+from .telegram_bot import TelegramCommandRouter
+
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("smart_lab.server")
@@ -49,6 +58,7 @@ manager = LabConnectionManager(detector=detector)
 curfew_engine = CurfewEngine(config=CurfewConfig(enabled=CURFEW_ENABLED))
 if DEMO_MODE:
     curfew_engine.set_override(True, "Live Demo Session (Curfew Override Active)")
+telegram_router = TelegramCommandRouter(manager=manager, curfew_engine=curfew_engine)
 
 # Background Watchdog Tasks
 _watchdog_tasks: List[asyncio.Task] = []
@@ -211,6 +221,11 @@ async def workstation_agent_socket(
                     if st:
                         st.screen_thumbnail = img_data
                         await manager.broadcast_admin_update()
+            elif msg_type == "ASSIGNMENT_SUBMISSION":
+                sub_data = msg_json.get("data", {})
+                submission = AssignmentSubmissionPayload.model_validate(sub_data)
+                manager.save_assignment_submission(submission)
+                await manager.broadcast_admin_update()
             elif msg_type == "HEARTBEAT":
                 st = manager.get_workstation(registered_client_id)
                 if st:
@@ -368,3 +383,133 @@ async def set_curfew_override(payload: OverrideRequest):
 async def get_audit_log(client_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """Returns application usage time audit log across all workstations or for a specific workstation."""
     return manager.get_audit_log(client_id=client_id)
+
+
+# ==============================================================================
+# Feature 1: AI Productivity Scoring & Daily Report Endpoints
+# ==============================================================================
+
+@app.get("/api/admin/reports/daily")
+async def get_daily_productivity_report() -> Dict[str, Any]:
+    """Returns end-of-day AI productivity report card with top focused and distracted students."""
+    return manager.generate_daily_report().model_dump(mode="json")
+
+
+# ==============================================================================
+# Feature 2: One-Click Focus Mode Endpoints
+# ==============================================================================
+
+@app.get("/api/admin/focus-mode")
+async def get_focus_mode_status():
+    """Returns current global focus mode state."""
+    return {
+        "focus_mode_active": manager.focus_mode_active,
+        "reason": manager.focus_mode_reason,
+    }
+
+
+@app.post("/api/admin/focus-mode/toggle")
+async def toggle_focus_mode(payload: FocusModeRequest):
+    """Enables or disables global focus mode to block distractions."""
+    delivered = await manager.set_focus_mode(payload.active, payload.reason)
+    return {
+        "status": "success",
+        "focus_mode_active": manager.focus_mode_active,
+        "workstations_updated": delivered,
+    }
+
+
+# ==============================================================================
+# Feature 3: Central File Broadcast & Assignment Collection Endpoints
+# ==============================================================================
+
+@app.post("/api/admin/files/broadcast")
+async def broadcast_file_to_lab(payload: FileBroadcastPayload):
+    """Broadcasts a lecture sheet, code file, or problem statement to all connected workstations."""
+    delivered = await manager.broadcast_file(payload)
+    return {
+        "status": "success",
+        "filename": payload.filename,
+        "dispatched_count": delivered,
+    }
+
+
+@app.post("/api/admin/files/collect")
+async def collect_assignments(payload: CollectAssignmentsRequest):
+    """Requests all connected workstations to upload their assignment submission."""
+    delivered = await manager.collect_assignments(payload)
+    return {
+        "status": "success",
+        "assignment_name": payload.assignment_name,
+        "dispatched_count": delivered,
+    }
+
+
+@app.get("/api/admin/files/collected")
+async def list_collected_assignments():
+    """Returns all student assignment submissions stored in the central repository."""
+    return manager.get_collected_submissions()
+
+
+# ==============================================================================
+# Feature 4: USB Storage Policy Endpoints
+# ==============================================================================
+
+@app.get("/api/admin/usb-policy")
+async def get_usb_policy_status():
+    """Returns global USB mass storage restriction policy state."""
+    return {
+        "usb_storage_blocked": manager.usb_storage_blocked,
+    }
+
+
+@app.post("/api/admin/usb-policy/toggle")
+async def toggle_usb_policy(payload: UsbPolicyRequest):
+    """Blocks or allows USB mass storage across all or individual workstations."""
+    delivered = await manager.set_usb_policy(payload.blocked, payload.target_client_id)
+    return {
+        "status": "success",
+        "usb_storage_blocked": manager.usb_storage_blocked,
+        "target_client_id": payload.target_client_id,
+        "workstations_updated": delivered,
+    }
+
+
+# ==============================================================================
+# Feature 5: Telegram Remote Control Endpoints
+# ==============================================================================
+
+@app.get("/api/admin/telegram/status")
+async def get_telegram_status():
+    """Returns Telegram bot configuration state and available commands."""
+    return {
+        "configured": telegram_router.is_configured,
+        "bot_token_set": bool(telegram_router.bot_token),
+        "admin_chat_id_set": bool(telegram_router.admin_chat_id),
+    }
+
+
+@app.post("/api/admin/telegram/simulate")
+async def simulate_telegram_command(payload: TelegramSimulateRequest):
+    """Simulates execution of a Telegram slash command (/status, /lockall, /curfew, /report)."""
+    response_text = await telegram_router.execute_command(payload.command, sender=payload.user_name or "Admin")
+    return {
+        "status": "success",
+        "command": payload.command,
+        "response": response_text,
+    }
+
+
+@app.post("/api/telegram/webhook")
+async def telegram_webhook(request: Request):
+    """Telegram Bot official webhook endpoint."""
+    try:
+        data = await request.json()
+        msg = data.get("message") or data.get("edited_message") or {}
+        text = msg.get("text", "")
+        sender = msg.get("from", {}).get("first_name", "Telegram User")
+        response_text = await telegram_router.execute_command(text, sender=sender)
+        return {"ok": True, "reply": response_text}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
