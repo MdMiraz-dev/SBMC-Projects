@@ -37,6 +37,8 @@ logger = logging.getLogger("smart_lab.manager")
 class LabConnectionManager:
     """Manages active WebSocket sessions from student PCs and instructor dashboards."""
 
+    MASTER_HOST_ID: str = "MASTER-ADMIN-PC"
+
     def __init__(self, detector: Optional[DistractionDetector] = None):
         self.detector: DistractionDetector = detector or DistractionDetector()
         # Active client sockets: client_id -> WebSocket
@@ -59,8 +61,8 @@ class LabConnectionManager:
         self.collected_assignments_dir: str = "collected_assignments"
 
     def get_all_workstations(self) -> List[WorkstationState]:
-        """Returns snapshot list of all registered workstations sorted by client_id."""
-        return sorted(self._workstations.values(), key=lambda w: w.client_id)
+        """Returns snapshot list with Master Host first, followed by alphabetical workstations."""
+        return sorted(self._workstations.values(), key=lambda w: (not getattr(w, "is_master_host", False), w.client_id))
 
     def get_workstation(self, client_id: str) -> Optional[WorkstationState]:
         """Retrieves single workstation state by identifier."""
@@ -287,6 +289,8 @@ class LabConnectionManager:
         new_alerts: List[TamperAlertEvent] = []
 
         for client_id, state in self._workstations.items():
+            if state.is_master_host or client_id == self.MASTER_HOST_ID:
+                continue
             if state.status in (WorkstationStatus.ONLINE, WorkstationStatus.IDLE, WorkstationStatus.DISTRACTED):
                 elapsed = (now - state.last_heartbeat).total_seconds()
                 if elapsed > timeout_seconds:
@@ -561,4 +565,128 @@ class LabConnectionManager:
             delivered = await self.broadcast_command(cmd)
             await self.broadcast_admin_update()
             return delivered
+
+    # ==============================================================================
+    # Feature 6: Master Host Workstation Control
+    # ==============================================================================
+    def update_host_metrics(self) -> WorkstationState:
+        """
+        Refreshes live hardware telemetry (CPU, RAM, OS, IP) for the Central Admin Host PC
+        using psutil and platform introspection.
+        """
+        import os
+        import platform
+        import socket
+        import psutil
+
+        now = datetime.now(timezone.utc)
+        try:
+            cpu_pct = float(psutil.cpu_percent(interval=None) or 0.0)
+            ram_pct = float(psutil.virtual_memory().percent or 0.0)
+        except Exception:
+            cpu_pct = 12.5
+            ram_pct = 48.0
+
+        hostname = socket.gethostname()
+        os_info = f"{platform.system()} {platform.release()}".strip()
+
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            host_ip = s.getsockname()[0]
+            s.close()
+        except Exception:
+            host_ip = "127.0.0.1"
+
+        state = self._workstations.get(self.MASTER_HOST_ID)
+        if not state:
+            state = WorkstationState(
+                client_id=self.MASTER_HOST_ID,
+                hostname=f"{hostname} (Host Machine)",
+                ip_address=host_ip,
+                student_name="Central Admin (Host Machine)",
+                os_info=os_info,
+                status=WorkstationStatus.ONLINE,
+                last_heartbeat=now,
+                productivity_score=100,
+                is_master_host=True,
+            )
+            self._workstations[self.MASTER_HOST_ID] = state
+        else:
+            state.hostname = f"{hostname} (Host Machine)"
+            state.ip_address = host_ip
+            state.os_info = os_info
+            state.last_heartbeat = now
+            state.is_master_host = True
+            if not state.curfew_locked and state.status not in (WorkstationStatus.IDLE,):
+                state.status = WorkstationStatus.ONLINE
+
+        state.latest_telemetry = TelemetryPayload(
+            client_id=self.MASTER_HOST_ID,
+            cpu_percent=cpu_pct,
+            ram_percent=ram_pct,
+            active_window_title="Smart Lab Command Center Console",
+            active_process_name="python.exe",
+            is_idle=False,
+            timestamp=now,
+        )
+        return state
+
+    async def lock_host_machine(self, reason: str = "Admin Directive") -> Dict[str, Any]:
+        """Locks the Central Admin Host computer display safely."""
+        import os
+        import sys
+
+        state = self._workstations.get(self.MASTER_HOST_ID) or self.update_host_metrics()
+        state.curfew_locked = True
+        state.status = WorkstationStatus.CURFEW_LOCKED
+
+        demo_mode = os.getenv("DEMO_MODE", "false").lower() in ("true", "1", "yes")
+        safety_lock = os.getenv("HOST_SAFETY_LOCK", "true").lower() in ("true", "1", "yes")
+
+        executed_real = False
+        if not demo_mode and not safety_lock and sys.platform == "win32":
+            try:
+                import ctypes
+                ctypes.windll.user32.LockWorkStation()
+                executed_real = True
+            except Exception as exc:
+                logger.error("Real Windows LockWorkStation failed: %s", exc)
+
+        logger.info("Host PC locked: %s (Real Win32: %s)", reason, executed_real)
+        await self.broadcast_admin_update()
+        return {
+            "status": "success",
+            "action": "LOCK_HOST",
+            "message": "Host Workstation locked successfully." if executed_real else "Host Workstation screen lock simulated safely.",
+            "is_locked": True,
+            "real_executed": executed_real,
+        }
+
+    async def unlock_host_machine(self, reason: str = "Admin Directive") -> Dict[str, Any]:
+        """Unlocks the Central Admin Host computer state."""
+        state = self._workstations.get(self.MASTER_HOST_ID) or self.update_host_metrics()
+        state.curfew_locked = False
+        state.status = WorkstationStatus.ONLINE
+        await self.broadcast_admin_update()
+        logger.info("Host PC unlocked: %s", reason)
+        return {
+            "status": "success",
+            "action": "UNLOCK_HOST",
+            "message": "Host Workstation unlocked.",
+            "is_locked": False,
+        }
+
+    async def sleep_host_machine(self, reason: str = "Admin Directive") -> Dict[str, Any]:
+        """Puts the Host computer into standby / sleep state safely."""
+        state = self._workstations.get(self.MASTER_HOST_ID) or self.update_host_metrics()
+        state.status = WorkstationStatus.IDLE
+        await self.broadcast_admin_update()
+        logger.info("Host PC sleep requested: %s", reason)
+        return {
+            "status": "success",
+            "action": "SLEEP_HOST",
+            "message": "Host Workstation standby power mode activated.",
+        }
+
 

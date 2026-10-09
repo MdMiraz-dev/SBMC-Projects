@@ -12,6 +12,7 @@ from typing import Any, Dict, Optional, Tuple
 from .curfew import CurfewEngine
 from .manager import LabConnectionManager
 from .schemas import CommandType, AdminCommandPayload
+from .voice_ai import VoiceCommandAI
 
 logger = logging.getLogger("smart_lab.telegram")
 
@@ -22,6 +23,7 @@ class TelegramCommandRouter:
     def __init__(self, manager: LabConnectionManager, curfew_engine: CurfewEngine):
         self.manager = manager
         self.curfew_engine = curfew_engine
+        self.voice_ai = VoiceCommandAI()
         self.bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
         self.admin_chat_id = os.getenv("TELEGRAM_ADMIN_CHAT_ID", "").strip()
 
@@ -54,7 +56,9 @@ class TelegramCommandRouter:
                 "• `/focus [on|off]` — One-click distraction blocking mode\n"
                 "• `/usb [lock|unlock]` — USB storage restriction policy\n"
                 "• `/curfew` — Check or toggle 21:00 curfew override\n"
-                "• `/report` — Generate End-of-Day AI Productivity Card"
+                "• `/report` — Generate End-of-Day AI Productivity Card\n"
+                "• `/host [lock|unlock|sleep]` — Master Admin Host PC power controls\n"
+                "• 🎙️ *AI Voice Commands*: Send Bengali voice note (e.g. 'ল্যাব লক করো', 'ল্যাব স্ট্যাটাস বলো')"
             )
 
         elif cmd == "/status":
@@ -154,4 +158,58 @@ class TelegramCommandRouter:
                 f"⚠️ *Distraction Flagged*:\n{top_distract_str}"
             )
 
+        elif cmd == "/host":
+            if arg == "lock":
+                res = await self.manager.lock_host_machine(reason=f"Telegram directive by {sender}")
+                return f"👑 *Master Host PC*: {res.get('message', 'Host locked.')} 🔒"
+            elif arg == "unlock":
+                res = await self.manager.unlock_host_machine(reason=f"Telegram directive by {sender}")
+                return f"👑 *Master Host PC*: {res.get('message', 'Host unlocked.')} 🔓"
+            elif arg == "sleep":
+                res = await self.manager.sleep_host_machine(reason=f"Telegram directive by {sender}")
+                return f"👑 *Master Host PC*: {res.get('message', 'Host standby.')} 🌙"
+            else:
+                host_pc = self.manager.get_workstation(self.manager.MASTER_HOST_ID)
+                if host_pc and host_pc.latest_telemetry:
+                    cpu = host_pc.latest_telemetry.cpu_percent
+                    ram = host_pc.latest_telemetry.ram_percent
+                    lock_str = "LOCKED 🔒" if host_pc.curfew_locked else "ACTIVE 🟢"
+                    return f"👑 *Master Host PC Status*:\n• State: {lock_str}\n• CPU: {cpu}%\n• RAM: {ram}%\n• OS: {host_pc.os_info}\n\n_Use `/host lock`, `/host unlock`, or `/host sleep`._"
+                return "👑 *Master Host PC*: Monitoring online."
+
         return f"❓ Unknown command: `{cmd}`. Type `/help` for list of supported commands."
+
+    async def handle_voice_message(
+        self,
+        voice_bytes: Optional[bytes] = None,
+        spoken_text: Optional[str] = None,
+        sender: str = "Telegram Voice User",
+    ) -> Dict[str, Any]:
+        """
+        Receives Bengali audio bytes or spoken text transcript,
+        resolves command intent via Gemini AI & Bengali NLP,
+        executes the target command, and returns a structured response.
+        """
+        transcript, resolved_cmd, model_used = await self.voice_ai.process_voice_input(
+            spoken_text=spoken_text,
+            audio_bytes=voice_bytes,
+        )
+
+        execution_result = await self.execute_command(resolved_cmd, sender=f"{sender} (Voice)")
+
+        reply_message = (
+            f"🎙️ *ভয়েস কমান্ড শনাক্ত হয়েছে:* \"{transcript}\"\n"
+            f"⚡ *সম্পাদিত কমান্ড:* `{resolved_cmd}`\n"
+            f"🤖 *AI ইঞ্জিন:* `{model_used}`\n\n"
+            f"{execution_result}"
+        )
+
+        return {
+            "success": True,
+            "transcript": transcript,
+            "resolved_command": resolved_cmd,
+            "model_used": model_used,
+            "execution_result": execution_result,
+            "reply_message": reply_message,
+        }
+

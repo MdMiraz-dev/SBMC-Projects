@@ -117,6 +117,7 @@ class WorkstationState(BaseModel):
     productivity_score: int = 100
     usb_blocked: bool = False
     focus_mode_active: bool = False
+    is_master_host: bool = False
     app_usage: Dict[str, "AppUsageRecord"] = Field(default_factory=dict)
 
 
@@ -268,4 +269,36 @@ class TelegramSimulateRequest(BaseModel):
     command: str = Field(..., description="e.g. /status, /lockall, /unlockall, /curfew, /report, /focus on")
     chat_id: Optional[str] = "admin_chat"
     user_name: Optional[str] = "LabInstructor"
+
+
+# ==============================================================================
+# Feature 6: Master Host Workstation Models
+# ==============================================================================
+
+class HostActionRequest(BaseModel):
+    """Administrative action issued directly to the master host machine."""
+    action: str = Field(..., description="LOCK, UNLOCK, or SLEEP")
+    reason: Optional[str] = "Instructor host workstation control"
+
+
+# ==============================================================================
+# Feature 7: Telegram AI Voice Command Models
+# ==============================================================================
+
+class VoiceCommandRequest(BaseModel):
+    """Payload to simulate or process Telegram AI Bengali Voice commands."""
+    spoken_text: Optional[str] = Field(default=None, description="Spoken Bengali voice text, e.g. ল্যাব লক করো")
+    audio_base64: Optional[str] = Field(default=None, description="Base64 encoded OGG/WAV/MP3 audio")
+    sender: Optional[str] = Field(default="Telegram Voice Admin", max_length=64)
+
+
+class VoiceCommandResult(BaseModel):
+    """Structured response after AI speech transcription and intent execution."""
+    success: bool
+    transcript: str
+    resolved_command: str
+    reply_message: str
+    execution_result: Optional[str] = None
+    ai_model_used: str = "Gemini Flash / Bengali Heuristic NLP"
+
 

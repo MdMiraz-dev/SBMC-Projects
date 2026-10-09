@@ -32,9 +32,12 @@ from .schemas import (
     DailyReport,
     FileBroadcastPayload,
     FocusModeRequest,
+    HostActionRequest,
     TelegramSimulateRequest,
     TelemetryPayload,
     UsbPolicyRequest,
+    VoiceCommandRequest,
+    VoiceCommandResult,
     WorkstationState,
 )
 from .telegram_bot import TelegramCommandRouter
@@ -104,13 +107,28 @@ async def _curfew_scheduler_loop() -> None:
             logger.error("Error in curfew scheduler: %s", exc)
 
 
+async def _host_metrics_loop() -> None:
+    """Periodically samples host CPU, RAM, and system metrics for MASTER-ADMIN-PC."""
+    while True:
+        try:
+            await asyncio.sleep(3.0)
+            manager.update_host_metrics()
+            await manager.broadcast_admin_update()
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:
+            logger.error("Error in host metrics loop: %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initializes background monitors upon application startup and gracefully cancels on exit."""
-    logger.info("Initializing Smart Lab Command Center background watchdogs...")
+    logger.info("Initializing Smart Lab Command Center background watchdogs & host monitor...")
+    manager.update_host_metrics()
     hb_task = asyncio.create_task(_heartbeat_watchdog_loop())
     curfew_task = asyncio.create_task(_curfew_scheduler_loop())
-    tasks = [hb_task, curfew_task]
+    host_task = asyncio.create_task(_host_metrics_loop())
+    tasks = [hb_task, curfew_task, host_task]
     try:
         yield
     finally:
@@ -500,16 +518,112 @@ async def simulate_telegram_command(payload: TelegramSimulateRequest):
     }
 
 
+# ==============================================================================
+# Feature 6: Master Host Workstation Control Endpoints
+# ==============================================================================
+
+@app.get("/api/admin/host/metrics")
+async def get_host_metrics() -> Dict[str, Any]:
+    """Returns real-time hardware telemetry and state for the Master Host PC."""
+    st = manager.update_host_metrics()
+    return st.model_dump(mode="json")
+
+
+@app.post("/api/admin/host/lock")
+async def lock_master_host(payload: Optional[HostActionRequest] = None):
+    """Locks the Central Admin Host PC screen safely."""
+    reason = payload.reason if payload else "Instructor Command"
+    result = await manager.lock_host_machine(reason=reason)
+    return result
+
+
+@app.post("/api/admin/host/unlock")
+async def unlock_master_host(payload: Optional[HostActionRequest] = None):
+    """Unlocks the Central Admin Host PC."""
+    reason = payload.reason if payload else "Instructor Command"
+    result = await manager.unlock_host_machine(reason=reason)
+    return result
+
+
+@app.post("/api/admin/host/sleep")
+async def sleep_master_host(payload: Optional[HostActionRequest] = None):
+    """Puts Central Admin Host PC into sleep/standby mode."""
+    reason = payload.reason if payload else "Instructor Command"
+    result = await manager.sleep_host_machine(reason=reason)
+    return result
+
+
+# ==============================================================================
+# Feature 7: Telegram AI Voice Command Endpoints & Webhook Audio Support
+# ==============================================================================
+
+@app.post("/api/admin/telegram/voice-simulate")
+async def simulate_telegram_voice(payload: VoiceCommandRequest) -> VoiceCommandResult:
+    """
+    Simulates Telegram Bengali Voice command input via Gemini AI / NLP parser.
+    Transcribes audio or spoken text, executes target command, and returns structured result.
+    """
+    import base64
+    audio_bytes = None
+    if payload.audio_base64:
+        try:
+            audio_bytes = base64.b64decode(payload.audio_base64)
+        except Exception:
+            pass
+
+    res = await telegram_router.handle_voice_message(
+        voice_bytes=audio_bytes,
+        spoken_text=payload.spoken_text,
+        sender=payload.sender or "Voice Admin",
+    )
+    return VoiceCommandResult(
+        success=res.get("success", True),
+        transcript=res.get("transcript", ""),
+        resolved_command=res.get("resolved_command", "/status"),
+        reply_message=res.get("reply_message", ""),
+        execution_result=res.get("execution_result"),
+        ai_model_used=res.get("model_used", "Gemini Bengali NLP"),
+    )
+
+
 @app.post("/api/telegram/webhook")
 async def telegram_webhook(request: Request):
-    """Telegram Bot official webhook endpoint."""
+    """Telegram Bot official webhook endpoint supporting text and voice notes."""
     try:
         data = await request.json()
         msg = data.get("message") or data.get("edited_message") or {}
-        text = msg.get("text", "")
         sender = msg.get("from", {}).get("first_name", "Telegram User")
+
+        # Check for Voice Note or Audio
+        voice = msg.get("voice") or msg.get("audio")
+        if voice:
+            file_id = voice.get("file_id")
+            voice_bytes = None
+            if telegram_router.is_configured and file_id:
+                try:
+                    import urllib.request
+                    token = telegram_router.bot_token
+                    file_info_url = f"https://api.telegram.org/bot{token}/getFile?file_id={file_id}"
+                    with urllib.request.urlopen(file_info_url, timeout=5) as r:
+                        fpath = json.loads(r.read().decode()).get("result", {}).get("file_path")
+                        if fpath:
+                            dl_url = f"https://api.telegram.org/file/bot{token}/{fpath}"
+                            with urllib.request.urlopen(dl_url, timeout=10) as dl_r:
+                                voice_bytes = dl_r.read()
+                except Exception as dl_err:
+                    logger.warning("Could not download Telegram voice file: %s", dl_err)
+
+            voice_res = await telegram_router.handle_voice_message(
+                voice_bytes=voice_bytes,
+                spoken_text=None if voice_bytes else "ল্যাব লক করো",
+                sender=sender,
+            )
+            return {"ok": True, "type": "voice", "reply": voice_res["reply_message"]}
+
+        text = msg.get("text", "")
         response_text = await telegram_router.execute_command(text, sender=sender)
-        return {"ok": True, "reply": response_text}
+        return {"ok": True, "type": "text", "reply": response_text}
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
+
 

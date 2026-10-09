@@ -455,10 +455,37 @@
                 <button onclick="runTelegramCmd('/curfew toggle')" class="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 hover:border-sky-500/50 text-slate-300 font-mono">/curfew toggle</button>
                 <button onclick="runTelegramCmd('/lockall')" class="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 hover:border-purple-500/50 text-purple-300 font-mono">/lockall</button>
                 <button onclick="runTelegramCmd('/unlockall')" class="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 hover:border-emerald-500/50 text-emerald-300 font-mono">/unlockall</button>
+                <button onclick="runTelegramCmd('/host lock')" class="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 hover:border-amber-500/50 text-amber-300 font-mono">/host lock</button>
+            </div>
+
+            <!-- Bengali AI Voice Command Engine Section -->
+            <div class="bg-slate-950/80 rounded-2xl p-3 border border-sky-500/30 space-y-2">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold text-sky-300 flex items-center gap-1.5">
+                        <span>🎙️</span> AI Voice Recognition (Gemini & Bengali NLP)
+                    </span>
+                    <span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-sky-950 text-sky-400 border border-sky-800">Voice AI</span>
+                </div>
+                <div class="flex flex-wrap gap-1.5 text-[11px]">
+                    <button onclick="sendVoiceSimulate('ল্যাব লক করো')" class="px-2 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-purple-500/50 text-purple-300 transition">🗣️ "ল্যাব লক করো"</button>
+                    <button onclick="sendVoiceSimulate('সবাইকে আনলক করো')" class="px-2 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-emerald-500/50 text-emerald-300 transition">🗣️ "সবাইকে আনলক করো"</button>
+                    <button onclick="sendVoiceSimulate('ল্যাব স্ট্যাটাস বলো')" class="px-2 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-sky-500/50 text-sky-300 transition">🗣️ "ল্যাব স্ট্যাটাস বলো"</button>
+                    <button onclick="sendVoiceSimulate('কার্ফিউ চালু করো')" class="px-2 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-amber-500/50 text-amber-300 transition">🗣️ "কার্ফিউ চালু করো"</button>
+                    <button onclick="sendVoiceSimulate('ফোকাস মোড অন করো')" class="px-2 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-teal-500/50 text-teal-300 transition">🗣️ "ফোকাস মোড অন করো"</button>
+                    <button onclick="sendVoiceSimulate('আজকের রিপোর্ট দাও')" class="px-2 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-blue-500/50 text-blue-300 transition">🗣️ "আজকের রিপোর্ট দাও"</button>
+                    <button onclick="sendVoiceSimulate('হোস্ট পিসি লক করো')" class="px-2 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-yellow-500/50 text-yellow-300 transition">🗣️ "হোস্ট পিসি লক করো"</button>
+                </div>
+                <div class="flex gap-1.5 pt-1">
+                    <input type="text" id="voiceTextInput" onkeydown="if(event.key==='Enter') sendCustomVoiceText()" placeholder="বাংলায় ভয়েস টেক্সট বলুন বা লিখুন (যেমন: ল্যাব লক করো)..." class="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 font-sans" />
+                    <button onclick="toggleMicRecording()" id="micBtn" title="Speak into microphone" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-sky-300 flex items-center gap-1 transition">
+                        <span>🎤</span> <span id="micLabel">Speak</span>
+                    </button>
+                    <button onclick="sendCustomVoiceText()" class="px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-xs font-bold text-white transition">Voice Run</button>
+                </div>
             </div>
 
             <!-- Console Terminal Window -->
-            <div class="bg-black/90 rounded-2xl p-4 border border-slate-800 font-mono text-xs text-slate-300 h-56 overflow-y-auto whitespace-pre-wrap shadow-inner" id="telegramConsoleOutput">[Telegram Remote Bot Initialized]
+            <div class="bg-black/90 rounded-2xl p-4 border border-slate-800 font-mono text-xs text-slate-300 h-48 overflow-y-auto whitespace-pre-wrap shadow-inner" id="telegramConsoleOutput">[Telegram Remote Bot Initialized]
 Type a slash command or click one above to test...</div>
 
             <!-- Command Input Box -->
@@ -583,6 +610,87 @@ Type a slash command or click one above to test...</div>
             grid.innerHTML = data.workstations.map(pc => {
                 const t = pc.latest_telemetry || {};
                 const d = pc.distraction_report || {};
+                const cpu = t.cpu_percent ? t.cpu_percent.toFixed(0) : 0;
+                const ram = t.ram_percent ? t.ram_percent.toFixed(0) : 0;
+                const windowTitle = t.active_window_title || 'Idle / Background';
+
+                // Master Host PC Custom Rendering
+                if (pc.is_master_host || pc.client_id === 'MASTER-ADMIN-PC') {
+                    const isLocked = pc.curfew_locked;
+                    const lockBadge = isLocked 
+                        ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40">🔒 HOST DISPLAY LOCKED</span>'
+                        : '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse">👑 CENTRAL HOST ACTIVE</span>';
+
+                    return `
+                        <div class="bg-gradient-to-br from-slate-900 via-amber-950/20 to-slate-900 border border-amber-500/50 rounded-2xl p-4 sm:p-5 flex flex-col justify-between space-y-4 shadow-xl shadow-amber-950/20 hover:border-amber-400 transition relative">
+                            <div>
+                                <div class="flex items-start justify-between gap-2 mb-2">
+                                    <div>
+                                        <div class="flex items-center gap-1.5">
+                                            <h4 class="font-bold text-base text-white font-mono flex items-center gap-1">
+                                                <span>👑</span> MASTER-ADMIN-PC
+                                            </h4>
+                                            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono">HOST</span>
+                                        </div>
+                                        <p class="text-xs text-amber-200/80 mt-0.5">${pc.student_name} • <span class="text-slate-400">${pc.ip_address}</span></p>
+                                    </div>
+                                    <div class="flex flex-col items-end gap-1">
+                                        ${lockBadge}
+                                        <span class="px-2 py-0.5 rounded-full text-[10px] font-mono bg-slate-950 text-slate-300 border border-slate-800">${pc.os_info}</span>
+                                    </div>
+                                </div>
+
+                                <!-- Host Hardware Live Metrics -->
+                                <div class="grid grid-cols-2 gap-2 my-2 text-xs font-mono">
+                                    <div class="bg-slate-950/90 p-2.5 rounded-xl border border-amber-500/30">
+                                        <div class="flex justify-between text-slate-300 mb-1">
+                                            <span class="font-sans font-semibold text-amber-300">Host CPU</span>
+                                            <span class="font-bold text-white">${cpu}%</span>
+                                        </div>
+                                        <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                                            <div class="bg-amber-400 h-1.5 rounded-full transition-all duration-500" style="width: ${cpu}%"></div>
+                                        </div>
+                                    </div>
+                                    <div class="bg-slate-950/90 p-2.5 rounded-xl border border-amber-500/30">
+                                        <div class="flex justify-between text-slate-300 mb-1">
+                                            <span class="font-sans font-semibold text-amber-300">Host RAM</span>
+                                            <span class="font-bold text-white">${ram}%</span>
+                                        </div>
+                                        <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                                            <div class="bg-purple-400 h-1.5 rounded-full transition-all duration-500" style="width: ${ram}%"></div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Active Service Process Banner -->
+                                <div class="bg-slate-950/80 p-2.5 rounded-xl border border-slate-800 text-xs">
+                                    <span class="text-[10px] text-amber-400 font-bold uppercase tracking-wider block mb-1">Central Controller Service</span>
+                                    <p class="text-xs text-slate-200 font-mono truncate">
+                                        FastAPI • Smart Lab Central Server • Port 8500
+                                    </p>
+                                </div>
+                            </div>
+
+                            <!-- Host Direct Power & Lock Controls -->
+                            <div class="space-y-2 pt-2 border-t border-slate-800/80">
+                                <div class="grid grid-cols-2 gap-2">
+                                    ${isLocked ? `
+                                        <button onclick="unlockHostPC()" class="py-2 rounded-xl bg-emerald-600/30 hover:bg-emerald-600/40 border border-emerald-500/50 text-xs font-bold text-emerald-300 transition flex items-center justify-center gap-1.5 shadow-md">
+                                            <span>🔓</span> Unlock Host PC
+                                        </button>
+                                    ` : `
+                                        <button onclick="lockHostPC()" class="py-2 rounded-xl bg-purple-600/30 hover:bg-purple-600/40 border border-purple-500/50 text-xs font-bold text-purple-300 transition flex items-center justify-center gap-1.5 shadow-md">
+                                            <span>🔒</span> Lock Host PC
+                                        </button>
+                                    `}
+                                    <button onclick="sleepHostPC()" class="py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold text-amber-200 transition flex items-center justify-center gap-1.5">
+                                        <span>🌙</span> Sleep Host
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
 
                 let borderClass = 'border-slate-800';
                 let statusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">ONLINE</span>';
@@ -597,10 +705,6 @@ Type a slash command or click one above to test...</div>
                     borderClass = 'border-purple-500/50';
                     statusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40">🔒 CURFEW LOCKED</span>';
                 }
-
-                const cpu = t.cpu_percent ? t.cpu_percent.toFixed(0) : 0;
-                const ram = t.ram_percent ? t.ram_percent.toFixed(0) : 0;
-                const windowTitle = t.active_window_title || 'Idle / Background';
 
                 // Productivity Score Styling
                 const score = pc.productivity_score !== undefined ? pc.productivity_score : 100;
@@ -1185,6 +1289,146 @@ Type a slash command or click one above to test...</div>
             if (val) {
                 runTelegramCmd(val);
                 inp.value = '';
+            }
+        }
+
+        // ==============================================================================
+        // Feature 6: Master Host PC Direct Controls
+        // ==============================================================================
+        async function lockHostPC() {
+            try {
+                const res = await fetch('/api/admin/host/lock', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'LOCK', reason: 'Instructor Host Control Click' })
+                });
+                const d = await res.json();
+                alert(d.message || 'Host PC locked.');
+            } catch (e) {
+                alert('Lock Host PC error: ' + e.message);
+            }
+        }
+
+        async function unlockHostPC() {
+            try {
+                const res = await fetch('/api/admin/host/unlock', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'UNLOCK', reason: 'Instructor Host Control Click' })
+                });
+                const d = await res.json();
+                alert(d.message || 'Host PC unlocked.');
+            } catch (e) {
+                alert('Unlock Host PC error: ' + e.message);
+            }
+        }
+
+        async function sleepHostPC() {
+            if (!confirm('Put the Central Admin Host PC into sleep / standby mode?')) return;
+            try {
+                const res = await fetch('/api/admin/host/sleep', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'SLEEP', reason: 'Instructor Host Sleep Click' })
+                });
+                const d = await res.json();
+                alert(d.message || 'Host PC entering standby.');
+            } catch (e) {
+                alert('Sleep Host PC error: ' + e.message);
+            }
+        }
+
+        // ==============================================================================
+        // Feature 7: AI Voice Command Simulator Handlers
+        // ==============================================================================
+        async function sendVoiceSimulate(spokenText) {
+            const consoleOut = document.getElementById('telegramConsoleOutput');
+            consoleOut.innerText += `\n\n🎙️ [Voice Audio Received]: "${spokenText}"\n[Transcribing & Resolving Intent via AI...]`;
+            consoleOut.scrollTop = consoleOut.scrollHeight;
+            try {
+                const res = await fetch('/api/admin/telegram/voice-simulate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ spoken_text: spokenText, sender: 'Instructor Voice' })
+                });
+                const d = await res.json();
+                consoleOut.innerText += `\n${d.reply_message}`;
+                consoleOut.scrollTop = consoleOut.scrollHeight;
+            } catch (e) {
+                consoleOut.innerText += `\nVoice execution error: ${e.message}`;
+            }
+        }
+
+        function sendCustomVoiceText() {
+            const inp = document.getElementById('voiceTextInput');
+            const val = inp.value.trim();
+            if (val) {
+                sendVoiceSimulate(val);
+                inp.value = '';
+            }
+        }
+
+        let isRecording = false;
+        let recognition = null;
+
+        function toggleMicRecording() {
+            const micBtn = document.getElementById('micBtn');
+            const micLabel = document.getElementById('micLabel');
+            const inp = document.getElementById('voiceTextInput');
+
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+                alert('Speech Recognition API is not supported in this browser. Please type your Bengali command in the box.');
+                return;
+            }
+
+            if (!isRecording) {
+                try {
+                    recognition = new SpeechRecognition();
+                    recognition.lang = 'bn-BD';
+                    recognition.interimResults = false;
+                    recognition.maxAlternatives = 1;
+
+                    recognition.onstart = () => {
+                        isRecording = true;
+                        micBtn.className = 'px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-xs font-bold text-white flex items-center gap-1 animate-pulse';
+                        micLabel.innerText = 'Listening...';
+                    };
+
+                    recognition.onresult = (event) => {
+                        const transcript = event.results[0][0].transcript;
+                        inp.value = transcript;
+                        sendVoiceSimulate(transcript);
+                    };
+
+                    recognition.onerror = (event) => {
+                        console.warn('Speech recognition error:', event.error);
+                        stopMic();
+                    };
+
+                    recognition.onend = () => {
+                        stopMic();
+                    };
+
+                    recognition.start();
+                } catch (err) {
+                    console.error('Failed to start speech recognition:', err);
+                    stopMic();
+                }
+            } else {
+                stopMic();
+            }
+        }
+
+        function stopMic() {
+            isRecording = false;
+            const micBtn = document.getElementById('micBtn');
+            const micLabel = document.getElementById('micLabel');
+            if (micBtn) micBtn.className = 'px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-sky-300 flex items-center gap-1 transition';
+            if (micLabel) micLabel.innerText = 'Speak';
+            if (recognition) {
+                try { recognition.stop(); } catch(e) {}
+                recognition = null;
             }
         }
 
