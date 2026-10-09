@@ -374,3 +374,146 @@ def test_public_webhook_invalid_email_rejection():
     assert "Validation Error" in response.json()["detail"]
 
 
+# ==========================================
+# Module M7 Security, Auth & SQLite Tests
+# ==========================================
+
+def test_database_persistence_and_seeding(tmp_path):
+    """Verifies SQLite init, upsert, and retrieval functions in isolation."""
+    from database import init_db, save_or_update_lead, get_all_stored_leads, seed_baseline_leads
+
+    test_db = str(tmp_path / "test_leads.db")
+    init_db(test_db)
+
+    # Seed baseline
+    sample = [
+        {
+            "lead_id": "TEST-1",
+            "name": "Test User",
+            "email": "test@user.com",
+            "company": "Test Co",
+            "budget": 20000.0,
+            "industry": "Tech",
+            "source": "Test",
+            "tier": "GROWTH",
+            "score": 40,
+            "qualification_notes": "Test note",
+            "email_draft": "Hello test",
+            "alert_dispatched": False,
+        }
+    ]
+    seed_baseline_leads(sample, db_path=test_db)
+    leads = get_all_stored_leads(db_path=test_db)
+    assert len(leads) == 1
+    assert leads[0]["lead_id"] == "TEST-1"
+    assert leads[0]["budget"] == 20000.0
+
+    # Upsert updated lead
+    sample[0]["budget"] = 35000.0
+    save_or_update_lead(sample[0], db_path=test_db)
+    updated_leads = get_all_stored_leads(db_path=test_db)
+    assert len(updated_leads) == 1
+    assert updated_leads[0]["budget"] == 35000.0
+
+
+def test_admin_login_success_and_session_cookie():
+    """Verifies that valid admin credentials set the sbmc_admin_session cookie and redirect."""
+    from fastapi.testclient import TestClient
+    from app import app, ADMIN_USERNAME, ADMIN_PASSWORD, COOKIE_NAME
+
+    client = TestClient(app)
+    response = client.post(
+        "/login",
+        data={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert response.headers["location"] == "/"
+    assert COOKIE_NAME in response.cookies
+
+
+def test_admin_login_failure():
+    """Verifies that invalid credentials redirect back to /login with error query param."""
+    from fastapi.testclient import TestClient
+    from app import app, COOKIE_NAME
+
+    client = TestClient(app)
+    response = client.post(
+        "/login",
+        data={"username": "admin", "password": "wrong_password_999"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert "/login?error=1" in response.headers["location"]
+    assert COOKIE_NAME not in response.cookies
+
+
+def test_unauthenticated_dashboard_redirects_to_login():
+    """Verifies that unauthenticated GET / redirects to /login."""
+    from fastapi.testclient import TestClient
+    from app import app
+
+    client = TestClient(app)
+    response = client.get("/", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
+
+
+def test_authenticated_dashboard_access():
+    """Verifies that requests with a valid session cookie can view the dashboard."""
+    from fastapi.testclient import TestClient
+    from app import app, SESSION_TOKEN, COOKIE_NAME
+
+    client = TestClient(app)
+    client.cookies.set(COOKIE_NAME, SESSION_TOKEN)
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "SBMC Automation Engine" in response.text
+    assert "Logout" in response.text
+
+
+def test_admin_api_endpoints_reject_unauthenticated_requests():
+    """Verifies that protected admin endpoints return 401 Unauthorized without session cookie."""
+    from fastapi.testclient import TestClient
+    from app import app
+
+    client = TestClient(app)
+    resp_live = client.get("/api/live-status")
+    assert resp_live.status_code == 401
+
+    resp_proc = client.post("/api/process-leads", json={"leads": []})
+    assert resp_proc.status_code == 401
+
+    resp_csv = client.post("/api/export-csv", json={"leads": []})
+    assert resp_csv.status_code == 401
+
+
+def test_admin_api_endpoints_accept_authenticated_requests():
+    """Verifies that protected admin endpoints succeed with a valid session cookie."""
+    from fastapi.testclient import TestClient
+    from app import app, SESSION_TOKEN, COOKIE_NAME
+
+    client = TestClient(app)
+    client.cookies.set(COOKIE_NAME, SESSION_TOKEN)
+    resp_live = client.get("/api/live-status")
+    assert resp_live.status_code == 200
+    assert "summary" in resp_live.json()
+    assert "leads" in resp_live.json()
+
+
+def test_logout_clears_cookie():
+    """Verifies that GET /logout clears the session cookie and redirects to /login."""
+    from fastapi.testclient import TestClient
+    from app import app, SESSION_TOKEN, COOKIE_NAME
+
+    client = TestClient(app)
+    client.cookies.set(COOKIE_NAME, SESSION_TOKEN)
+    response = client.get("/logout", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
+    # Cookie should be unset or empty
+    cookie_header = response.headers.get("set-cookie", "")
+    assert COOKIE_NAME in cookie_header
+
+
+

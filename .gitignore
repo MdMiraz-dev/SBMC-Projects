@@ -90,3 +90,9 @@ desktop.ini
 # AI Agents & Scratch
 scratch/
 *.log
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+

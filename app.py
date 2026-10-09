@@ -2,29 +2,43 @@
 Module: app.py
 Description: FastAPI web application for SBMC Lead Automation Engine.
 Features:
-- Operations Dashboard (/) with live metrics, VIP alerts, AI email drafts, and CSV export.
-- Public Customer Quotation & Lead Form (/apply).
-- Real-time Webhook API (/api/webhook/lead) with live state synchronization.
+- Authentication System (/login, /logout) protecting Dashboard (/).
+- Public Route Isolation (/apply, /api/webhook/lead).
+- Persistent SQLite Database (leads.db) via database.py.
+- Real-time Webhooks & Live Polling Synchronization.
 """
 
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+import hashlib
+import os
+from typing import Any, Dict, List, Optional
 import uuid
 
-from fastapi import FastAPI, HTTPException, Response
-from fastapi.responses import HTMLResponse
+from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response, status
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 import uvicorn
 
 from automation_service import LeadAutomationService, LeadTier, RawLeadInput
-
-app = FastAPI(
-    title="SBMC Lead Automation & Public Quotation System",
-    description="Full-stack AI Operations Lead Qualification System with Public Ingestion and Webhooks",
-    version="2.0.0",
+from database import (
+    get_all_stored_leads,
+    init_db,
+    save_or_update_lead,
+    seed_baseline_leads,
 )
 
-service = LeadAutomationService()
+# Authentication Configuration (Read from environment with secure defaults)
+ADMIN_USERNAME: str = os.getenv("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "sbmc_admin_2026")
+SECRET_KEY: str = os.getenv("SECRET_KEY", "sbmc_session_secret_token_2026")
+
+# Deterministic session token derived from server secret & admin credentials
+SESSION_TOKEN: str = hashlib.sha256(
+    f"{ADMIN_USERNAME}:{ADMIN_PASSWORD}:{SECRET_KEY}".encode()
+).hexdigest()
+
+COOKIE_NAME: str = "sbmc_admin_session"
 
 INITIAL_SAMPLE_DATA: List[Dict[str, Any]] = [
     {
@@ -74,8 +88,48 @@ INITIAL_SAMPLE_DATA: List[Dict[str, Any]] = [
     },
 ]
 
-# In-memory synchronized live queue for real-time customer submissions
-LIVE_LEADS_STORE: List[Dict[str, Any]] = list(INITIAL_SAMPLE_DATA)
+service = LeadAutomationService()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initializes SQLite schema and seeds baseline leads on application startup."""
+    init_db()
+    # Pre-qualify sample data so complete attributes are stored
+    qualified_samples = []
+    for item in INITIAL_SAMPLE_DATA:
+        raw = RawLeadInput.model_validate(item)
+        q = service.qualify_lead(raw)
+        qualified_samples.append(q.model_dump())
+    seed_baseline_leads(qualified_samples)
+    yield
+
+
+app = FastAPI(
+    title="SBMC Lead Automation & Public Quotation System",
+    description="Full-stack AI Operations Lead Qualification System with Auth and SQLite Persistence",
+    version="2.1.0",
+    lifespan=lifespan,
+)
+
+
+# ==============================================================================
+# Authentication Utilities & Dependencies
+# ==============================================================================
+
+def is_authenticated(request: Request) -> bool:
+    """Verifies if the client possesses a valid HTTP-only admin session cookie."""
+    cookie_val = request.cookies.get(COOKIE_NAME)
+    return cookie_val == SESSION_TOKEN
+
+
+def require_admin_api(request: Request) -> None:
+    """Dependency that guards administrative API endpoints."""
+    if not is_authenticated(request):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Administrative authorization required. Please authenticate at /login.",
+        )
 
 
 class ProcessLeadsRequest(BaseModel):
@@ -92,31 +146,123 @@ class PublicWebhookPayload(BaseModel):
 
 
 # ==============================================================================
-# API Endpoints
+# Authentication Routes (/login, /logout)
+# ==============================================================================
+
+@app.get("/login", response_class=HTMLResponse)
+def login_page(request: Request, error: Optional[str] = None) -> Any:
+    """Renders the secure, modern admin login interface."""
+    if is_authenticated(request):
+        return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+
+    error_banner = ""
+    if error:
+        error_banner = """
+        <div class="p-3.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
+            <svg class="w-4 h-4 text-rose-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+            </svg>
+            <span>Invalid administrative credentials. Please verify username and password.</span>
+        </div>
+        """
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Portal Login | SBMC Operations</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>body {{ font-family: 'Plus Jakarta Sans', sans-serif; }}</style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex items-center justify-center p-4">
+    <div class="max-w-md w-full space-y-6">
+        <!-- Logo & Title -->
+        <div class="text-center space-y-2">
+            <div class="w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center mx-auto shadow-xl shadow-indigo-500/25">
+                <svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                </svg>
+            </div>
+            <h1 class="text-2xl font-extrabold text-white">SBMC Operations Portal</h1>
+            <p class="text-xs text-slate-400">Restricted administrative access for lead qualification & telemetry</p>
+        </div>
+
+        <!-- Login Form Card -->
+        <div class="bg-slate-900/80 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-5">
+            {error_banner}
+
+            <form method="POST" action="/login" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">Username</label>
+                    <input type="text" name="username" required placeholder="admin" value="admin" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">Password</label>
+                    <input type="password" name="password" required placeholder="••••••••••••" value="sbmc_admin_2026" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition font-mono">
+                </div>
+
+                <div class="pt-2">
+                    <button type="submit" class="w-full py-3 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-600 hover:to-violet-700 text-white font-bold text-sm shadow-lg shadow-indigo-500/25 transition flex items-center justify-center gap-2">
+                        <span>Sign In to Dashboard</span>
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+                    </button>
+                </div>
+            </form>
+
+            <div class="pt-2 border-t border-slate-800/80 text-center">
+                <a href="/apply" class="text-xs text-indigo-400 hover:text-indigo-300 transition">
+                    &larr; Switch to Public Customer Consultation Form
+                </a>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+"""
+
+
+@app.post("/login")
+def process_login(username: str = Form(...), password: str = Form(...)) -> Response:
+    """Validates submitted administrative credentials and issues an authenticated session cookie."""
+    if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
+        response = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+        response.set_cookie(
+            key=COOKIE_NAME,
+            value=SESSION_TOKEN,
+            httponly=True,
+            max_age=86400,
+            samesite="lax",
+        )
+        return response
+
+    return RedirectResponse(url="/login?error=1", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.get("/logout")
+def process_logout() -> Response:
+    """Terminates admin session by clearing the authenticated cookie."""
+    response = RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+    response.delete_cookie(key=COOKIE_NAME)
+    return response
+
+
+# ==============================================================================
+# Public Route Isolation (/apply, /api/webhook/lead, /api/sample-leads)
 # ==============================================================================
 
 @app.get("/api/sample-leads")
 def get_sample_leads() -> List[Dict[str, Any]]:
-    """Returns baseline curated sample leads."""
+    """Returns baseline curated sample leads (Public)."""
     return INITIAL_SAMPLE_DATA
-
-
-@app.get("/api/live-status")
-def get_live_status() -> Dict[str, Any]:
-    """Returns the latest processed state of all live leads for real-time dashboard polling."""
-    qualified_leads, summary = service.process_batch(LIVE_LEADS_STORE)
-    return {
-        "raw_queue": LIVE_LEADS_STORE,
-        "leads": [lead.model_dump() for lead in qualified_leads],
-        "summary": summary.model_dump(),
-    }
 
 
 @app.post("/api/webhook/lead")
 def ingest_public_webhook(payload: PublicWebhookPayload) -> Dict[str, Any]:
     """
     Public webhook endpoint that receives customer inquiries, validates inputs,
-    qualifies priority tier, and immediately feeds into the live dashboard queue.
+    qualifies priority tier, and stores permanently in SQLite database (Public).
     """
     generated_id = f"PUB-{uuid.uuid4().hex[:6].upper()}"
 
@@ -135,13 +281,12 @@ def ingest_public_webhook(payload: PublicWebhookPayload) -> Dict[str, Any]:
 
     qualified = service.qualify_lead(raw_lead)
 
-    # Prepend to live store so it appears at top of dashboard
-    item_dict = raw_lead.model_dump()
-    LIVE_LEADS_STORE.insert(0, item_dict)
+    # Persist in SQLite database
+    save_or_update_lead(qualified.model_dump())
 
     return {
         "status": "success",
-        "message": "Lead ingested, validated, and prioritized successfully.",
+        "message": "Lead ingested, validated, and stored in persistent database.",
         "lead_id": qualified.lead_id,
         "tier": qualified.tier.value,
         "score": qualified.score,
@@ -150,20 +295,39 @@ def ingest_public_webhook(payload: PublicWebhookPayload) -> Dict[str, Any]:
     }
 
 
-@app.post("/api/process-leads")
+# ==============================================================================
+# Protected Administrative APIs (Guarded by require_admin_api)
+# ==============================================================================
+
+@app.get("/api/live-status", dependencies=[Depends(require_admin_api)])
+def get_live_status() -> Dict[str, Any]:
+    """Returns latest state retrieved from SQLite leads.db."""
+    stored_leads = get_all_stored_leads()
+    qualified_leads, summary = service.process_batch(stored_leads)
+    return {
+        "raw_queue": stored_leads,
+        "leads": [lead.model_dump() for lead in qualified_leads],
+        "summary": summary.model_dump(),
+    }
+
+
+@app.post("/api/process-leads", dependencies=[Depends(require_admin_api)])
 def process_leads(payload: ProcessLeadsRequest) -> Dict[str, Any]:
-    """Ingests and validates raw batch of leads."""
+    """Batch ingests leads and persists qualified records into SQLite."""
     if not payload.leads:
         raise HTTPException(status_code=400, detail="Leads list cannot be empty.")
 
     qualified_leads, summary = service.process_batch(payload.leads)
+    for q in qualified_leads:
+        save_or_update_lead(q.model_dump())
+
     return {
         "leads": [lead.model_dump() for lead in qualified_leads],
         "summary": summary.model_dump(),
     }
 
 
-@app.post("/api/export-csv")
+@app.post("/api/export-csv", dependencies=[Depends(require_admin_api)])
 def export_leads_csv(payload: ProcessLeadsRequest) -> Response:
     """Exports validated leads to downloadable RFC 4180 CSV format."""
     if not payload.leads:
@@ -179,12 +343,12 @@ def export_leads_csv(payload: ProcessLeadsRequest) -> Response:
 
 
 # ==============================================================================
-# Public Customer Quotation Form Page (/apply)
+# Public Customer Quotation Form Page (/apply) — No Login Required
 # ==============================================================================
 
 @app.get("/apply", response_class=HTMLResponse)
 def public_apply_page() -> str:
-    """Renders the client-facing public quotation and lead intake portal."""
+    """Renders the client-facing public quotation and lead intake portal (Open to public)."""
     return """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -211,15 +375,15 @@ def public_apply_page() -> str:
                 </div>
             </div>
             <div class="flex items-center gap-3">
-                <a href="/" class="px-3.5 py-1.5 rounded-lg border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-xs font-semibold text-slate-300 transition flex items-center gap-1.5">
-                    <span>Operations Dashboard</span>
+                <a href="/login" class="px-3.5 py-1.5 rounded-lg border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-xs font-semibold text-slate-300 transition flex items-center gap-1.5">
+                    <span>Admin Portal</span>
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
                 </a>
             </div>
         </div>
     </header>
 
-    <main class="max-w-3xl mx-auto px-4 sm:px-6 py-12 space-y-8">
+    <main class="max-w-3xl mx-auto px-4 sm:px-6 py-8 sm:py-12 space-y-8">
         <!-- Hero Title -->
         <div class="text-center space-y-3">
             <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">
@@ -297,15 +461,15 @@ def public_apply_page() -> str:
                 </button>
             </form>
 
-            <!-- Success State Overlay (Hidden by Default) -->
+            <!-- Success State Overlay -->
             <div id="successCard" class="hidden text-center py-8 space-y-5">
                 <div class="w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center mx-auto text-3xl">
                     ✅
                 </div>
                 <div class="space-y-2">
                     <h2 class="text-2xl font-bold text-white">Consultation Request Received!</h2>
-                    <p class="text-sm text-slate-400 max-w-md mx-auto" id="successSubtitle">
-                        Your inquiry has been processed by our automated scoring engine.
+                    <p class="text-sm text-slate-400 max-w-md mx-auto">
+                        Your inquiry has been stored securely in our persistent database and routed to our executive triage pipeline.
                     </p>
                 </div>
 
@@ -319,8 +483,8 @@ def public_apply_page() -> str:
                         <span id="resTierBadge"></span>
                     </div>
                     <div class="flex justify-between">
-                        <span class="text-slate-500">Internal Routing:</span>
-                        <span id="resRouting" class="text-emerald-400 font-semibold">Live Webhook Ingested</span>
+                        <span class="text-slate-500">Database Persistence:</span>
+                        <span class="text-emerald-400 font-semibold">Saved in SQLite (leads.db)</span>
                     </div>
                 </div>
 
@@ -328,8 +492,8 @@ def public_apply_page() -> str:
                     <button onclick="resetApplyForm()" class="px-5 py-2.5 rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 transition">
                         Submit Another Request
                     </button>
-                    <a href="/" class="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white shadow-lg shadow-indigo-600/20 transition flex items-center gap-1.5">
-                        <span>View Operations Dashboard</span>
+                    <a href="/login" class="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white shadow-lg shadow-indigo-600/20 transition flex items-center gap-1.5">
+                        <span>Access Admin Dashboard</span>
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
                     </a>
                 </div>
@@ -388,7 +552,6 @@ def public_apply_page() -> str:
             let badgeHtml = '';
             if (data.tier === 'ENTERPRISE') {
                 badgeHtml = '<span class="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40 text-[11px] font-bold">⭐ VIP Enterprise (Priority SLA)</span>';
-                document.getElementById('resRouting').innerText = 'Dispatched to Telegram VIP Bot';
             } else if (data.tier === 'GROWTH') {
                 badgeHtml = '<span class="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[11px] font-semibold">🚀 Growth Tier</span>';
             } else if (data.tier === 'STANDARD') {
@@ -413,13 +576,16 @@ def public_apply_page() -> str:
 
 
 # ==============================================================================
-# Operations Dashboard UI (/)
+# Protected Operations Dashboard UI (/) — Requires Admin Authentication
 # ==============================================================================
 
 @app.get("/", response_class=HTMLResponse)
-def dashboard_ui() -> str:
-    """Renders the comprehensive, modern dashboard HTML user interface with real-time polling."""
-    return """<!DOCTYPE html>
+def dashboard_ui(request: Request) -> Any:
+    """Renders the protected dashboard HTML interface. Redirects to /login if unauthenticated."""
+    if not is_authenticated(request):
+        return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+
+    return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -427,7 +593,7 @@ def dashboard_ui() -> str:
     <title>SBMC Lead Automation Dashboard — Production Edition</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <style>body { font-family: 'Plus Jakarta Sans', sans-serif; }</style>
+    <style>body {{ font-family: 'Plus Jakarta Sans', sans-serif; }}</style>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen">
     <!-- Top Navigation -->
@@ -442,21 +608,26 @@ def dashboard_ui() -> str:
                 </div>
                 <div>
                     <h1 class="font-bold text-base sm:text-lg text-white leading-tight">SBMC Automation Engine</h1>
-                    <p class="text-[11px] sm:text-xs text-slate-400">Production Workflow • VIP Alert Dispatch • Real-time Webhooks</p>
+                    <p class="text-[11px] sm:text-xs text-slate-400">Production Workflow • VIP Alert Dispatch • SQLite Persistent (leads.db)</p>
                 </div>
             </div>
 
-            <!-- Mobile Navbar Actions (Stacked cleanly on mobile, inline on desktop) -->
+            <!-- Mobile Navbar Actions -->
             <div class="flex flex-wrap items-center justify-between sm:justify-start gap-2 pt-2 md:pt-0 border-t border-slate-800/60 md:border-t-0">
-                <a href="/apply" target="_blank" class="flex-1 sm:flex-initial px-3 py-1.5 rounded-lg border border-indigo-500/30 bg-indigo-600/20 hover:bg-indigo-600/30 text-xs font-bold text-indigo-300 transition flex items-center justify-center gap-1.5 shadow-sm">
-                    <span>🌐 Public Customer Form</span>
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-xs font-medium text-indigo-300">
+                    <span class="w-1.5 h-1.5 rounded-full bg-indigo-400"></span>
+                    <span>Admin: <strong class="text-white">{ADMIN_USERNAME}</strong></span>
+                </div>
+                <a href="/apply" target="_blank" class="px-3 py-1.5 rounded-lg border border-indigo-500/30 bg-indigo-600/20 hover:bg-indigo-600/30 text-xs font-bold text-indigo-300 transition flex items-center gap-1.5 shadow-sm">
+                    <span>🌐 Public Form</span>
                 </a>
-                <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                <span class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                     <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                    Live Webhook Ingestion
+                    <span>SQLite Active</span>
                 </span>
-                <a href="/docs" target="_blank" class="px-2.5 py-1.5 rounded-lg text-xs text-slate-400 hover:text-white transition">Docs &rarr;</a>
+                <a href="/logout" class="px-3 py-1.5 rounded-lg border border-rose-500/30 bg-rose-600/15 hover:bg-rose-600/25 text-xs font-bold text-rose-300 transition flex items-center gap-1">
+                    <span>🔒 Logout</span>
+                </a>
             </div>
         </div>
     </header>
@@ -488,12 +659,12 @@ def dashboard_ui() -> str:
         <div class="bg-gradient-to-r from-slate-900 via-indigo-950/30 to-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
             <div>
                 <h2 class="text-lg sm:text-xl font-bold text-white">Business Lead Ingestion & Qualification Hub</h2>
-                <p class="text-xs sm:text-sm text-slate-400 mt-1">Real-time sync active: Submissions on /apply immediately stream here.</p>
+                <p class="text-xs sm:text-sm text-slate-400 mt-1">Stored in SQLite leads.db — Submissions on /apply immediately stream here.</p>
             </div>
             <div class="grid grid-cols-1 sm:grid-cols-3 md:flex md:flex-wrap items-center gap-2.5 w-full md:w-auto">
                 <button id="loadSampleBtn" onclick="loadSampleLeads()" class="w-full md:w-auto px-4 py-2.5 rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-700 text-xs sm:text-sm font-semibold text-slate-200 transition shadow-sm flex items-center justify-center gap-2">
                     <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-                    Reload Baseline Leads
+                    Reload Sample Leads
                 </button>
                 <button id="runBtn" onclick="runAutomation()" class="w-full md:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-600 hover:to-violet-700 text-xs sm:text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition flex items-center justify-center gap-2">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
@@ -509,7 +680,7 @@ def dashboard_ui() -> str:
         <!-- Metric Summary Cards -->
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
             <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 sm:p-5">
-                <span class="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-slate-400">Total Ingested</span>
+                <span class="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-slate-400">Total Leads (DB)</span>
                 <div class="mt-1 sm:mt-2 flex items-baseline justify-between">
                     <span id="metricTotal" class="text-2xl sm:text-3xl font-extrabold text-white">0</span>
                     <span class="text-[10px] sm:text-xs text-slate-500 font-mono">records</span>
@@ -541,7 +712,7 @@ def dashboard_ui() -> str:
         <!-- Main Workspace: Form & Leads Queue -->
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <!-- Left: Add Lead Form -->
-            <div class="bg-slate-900/70 border border-slate-800 rounded-2xl p-6 space-y-4">
+            <div class="bg-slate-900/70 border border-slate-800 rounded-2xl p-4 sm:p-6 space-y-4">
                 <div class="flex items-center justify-between pb-3 border-b border-slate-800">
                     <h3 class="font-bold text-white flex items-center gap-2">
                         <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
@@ -591,11 +762,11 @@ def dashboard_ui() -> str:
             </div>
 
             <!-- Right: Queue & Raw JSON View -->
-            <div class="lg:col-span-2 bg-slate-900/70 border border-slate-800 rounded-2xl p-6 space-y-4">
+            <div class="lg:col-span-2 bg-slate-900/70 border border-slate-800 rounded-2xl p-4 sm:p-6 space-y-4">
                 <div class="flex items-center justify-between pb-3 border-b border-slate-800">
                     <div>
-                        <h3 class="font-bold text-white">Live Ingestion Stream</h3>
-                        <p class="text-xs text-slate-400">Synchronized with public submissions on /apply (<span id="queueCount">0</span> items)</p>
+                        <h3 class="font-bold text-white">Live Ingestion Stream (SQLite)</h3>
+                        <p class="text-xs text-slate-400">Synchronized with leads.db (<span id="queueCount">0</span> records)</p>
                     </div>
                     <div class="flex items-center gap-3">
                         <span class="text-xs text-emerald-400 flex items-center gap-1 font-mono">
@@ -603,7 +774,7 @@ def dashboard_ui() -> str:
                             Auto-sync: 3s
                         </span>
                         <button onclick="clearQueue()" class="text-xs text-slate-400 hover:text-rose-400 transition">
-                            Clear Queue
+                            Clear Editor
                         </button>
                     </div>
                 </div>
@@ -618,7 +789,7 @@ def dashboard_ui() -> str:
             <div class="p-4 sm:p-6 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
                     <h3 class="font-bold text-white text-base sm:text-lg">Qualified Leads & Scoring Results</h3>
-                    <p class="text-xs text-slate-400">Real-time classification with automated VIP routing and tailored AI email drafts</p>
+                    <p class="text-xs text-slate-400">Stored permanently in SQLite database (leads.db) with automated VIP routing and AI email drafts</p>
                 </div>
             </div>
 
@@ -637,7 +808,7 @@ def dashboard_ui() -> str:
                     <tbody id="resultsTableBody" class="divide-y divide-slate-800/60">
                         <tr>
                             <td colspan="6" class="px-6 py-10 text-center text-slate-500 italic">
-                                Initializing live pipeline stream...
+                                Initializing live pipeline stream from SQLite...
                             </td>
                         </tr>
                     </tbody>
@@ -689,49 +860,53 @@ def dashboard_ui() -> str:
         let currentQualifiedLeads = [];
         let isUserEditingQueue = false;
 
-        document.getElementById('jsonQueue').addEventListener('focus', () => { isUserEditingQueue = true; });
-        document.getElementById('jsonQueue').addEventListener('blur', () => { isUserEditingQueue = false; });
+        document.getElementById('jsonQueue').addEventListener('focus', () => {{ isUserEditingQueue = true; }});
+        document.getElementById('jsonQueue').addEventListener('blur', () => {{ isUserEditingQueue = false; }});
 
-        function updateQueueDisplay() {
-            if (!isUserEditingQueue) {
+        function updateQueueDisplay() {{
+            if (!isUserEditingQueue) {{
                 document.getElementById('jsonQueue').value = JSON.stringify(currentQueue, null, 2);
-            }
+            }}
             document.getElementById('queueCount').innerText = currentQueue.length;
-        }
+        }}
 
-        async function fetchLiveStatus() {
-            try {
+        async function fetchLiveStatus() {{
+            try {{
                 const res = await fetch('/api/live-status');
+                if (res.status === 401) {{
+                    window.location.href = '/login';
+                    return;
+                }}
                 if (!res.ok) return;
                 const data = await res.json();
                 currentQueue = data.raw_queue;
                 currentQualifiedLeads = data.leads;
                 updateQueueDisplay();
                 renderResults(data);
-            } catch (err) {
+            }} catch (err) {{
                 console.error("Live fetch error:", err);
-            }
-        }
+            }}
+        }}
 
-        async function loadSampleLeads() {
-            try {
+        async function loadSampleLeads() {{
+            try {{
                 const res = await fetch('/api/sample-leads');
                 currentQueue = await res.json();
                 updateQueueDisplay();
                 runAutomation();
-            } catch (err) {
+            }} catch (err) {{
                 alert('Error loading sample leads: ' + err.message);
-            }
-        }
+            }}
+        }}
 
-        function clearQueue() {
+        function clearQueue() {{
             currentQueue = [];
             updateQueueDisplay();
-        }
+        }}
 
-        function addLeadFromForm(e) {
+        function addLeadFromForm(e) {{
             e.preventDefault();
-            const lead = {
+            const lead = {{
                 lead_id: document.getElementById('formLeadId').value.trim(),
                 name: document.getElementById('formName').value.trim(),
                 email: document.getElementById('formEmail').value.trim(),
@@ -739,49 +914,59 @@ def dashboard_ui() -> str:
                 budget: parseFloat(document.getElementById('formBudget').value),
                 industry: document.getElementById('formIndustry').value,
                 source: "Dashboard Manual Form"
-            };
+            }};
             currentQueue.unshift(lead);
             updateQueueDisplay();
             document.getElementById('leadForm').reset();
             runAutomation();
-        }
+        }}
 
-        async function runAutomation() {
-            try {
+        async function runAutomation() {{
+            try {{
                 const text = document.getElementById('jsonQueue').value.trim();
-                if (text) {
+                if (text) {{
                     currentQueue = JSON.parse(text);
-                }
-            } catch (err) {
+                }}
+            }} catch (err) {{
                 alert('Invalid JSON in queue editor: ' + err.message);
                 return;
-            }
+            }}
 
-            const res = await fetch('/api/process-leads', {
+            const res = await fetch('/api/process-leads', {{
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ leads: currentQueue })
-            });
+                headers: {{ 'Content-Type': 'application/json' }},
+                body: JSON.stringify({{ leads: currentQueue }})
+            }});
 
-            if (res.ok) {
+            if (res.status === 401) {{
+                window.location.href = '/login';
+                return;
+            }}
+
+            if (res.ok) {{
                 const data = await res.json();
                 currentQualifiedLeads = data.leads;
                 renderResults(data);
-            }
-        }
+            }}
+        }}
 
-        async function exportCleanCsv() {
-            if (!currentQueue || currentQueue.length === 0) {
+        async function exportCleanCsv() {{
+            if (!currentQueue || currentQueue.length === 0) {{
                 alert('Queue is empty. No leads to export.');
                 return;
-            }
+            }}
 
-            try {
-                const res = await fetch('/api/export-csv', {
+            try {{
+                const res = await fetch('/api/export-csv', {{
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ leads: currentQueue })
-                });
+                    headers: {{ 'Content-Type': 'application/json' }},
+                    body: JSON.stringify({{ leads: currentQueue }})
+                }});
+
+                if (res.status === 401) {{
+                    window.location.href = '/login';
+                    return;
+                }}
 
                 if (!res.ok) throw new Error('CSV generation failed');
 
@@ -790,143 +975,143 @@ def dashboard_ui() -> str:
                 const a = document.createElement('a');
                 a.style.display = 'none';
                 a.href = url;
-                a.download = `qualified_leads_${new Date().toISOString().slice(0, 10)}.csv`;
+                a.download = `qualified_leads_${{new Date().toISOString().slice(0, 10)}}.csv`;
                 document.body.appendChild(a);
                 a.click();
                 window.URL.revokeObjectURL(url);
                 a.remove();
-            } catch (err) {
+            }} catch (err) {{
                 alert('Export failed: ' + err.message);
-            }
-        }
+            }}
+        }}
 
-        function renderResults(data) {
-            const { leads, summary } = data;
+        function renderResults(data) {{
+            const {{ leads, summary }} = data;
 
             document.getElementById('metricTotal').innerText = summary.total_received;
             document.getElementById('metricValid').innerText = summary.total_valid;
-            document.getElementById('metricPipeline').innerText = '$' + summary.total_pipeline_value.toLocaleString('en-US', { minimumFractionDigits: 2 });
+            document.getElementById('metricPipeline').innerText = '$' + summary.total_pipeline_value.toLocaleString('en-US', {{ minimumFractionDigits: 2 }});
             document.getElementById('metricInvalid').innerText = summary.total_invalid;
 
             // VIP Alerts Banner
             const vipBanner = document.getElementById('vipAlertBanner');
             const vipBadgesContainer = document.getElementById('vipAlertBadges');
-            if (summary.vip_alerts && summary.vip_alerts.length > 0) {
+            if (summary.vip_alerts && summary.vip_alerts.length > 0) {{
                 vipBanner.classList.remove('hidden');
                 vipBadgesContainer.innerHTML = summary.vip_alerts.map(a => `
                     <div class="px-3 py-1.5 rounded-xl bg-purple-900/60 border border-purple-500/50 text-xs flex items-center gap-2 shadow-lg">
                         <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-                        <span class="font-bold text-white">${a.company}</span>
-                        <span class="font-mono text-purple-200">($${a.budget.toLocaleString()})</span>
+                        <span class="font-bold text-white">${{a.company}}</span>
+                        <span class="font-mono text-purple-200">($${{a.budget.toLocaleString()}})</span>
                         <span class="text-[10px] bg-purple-500/30 px-1.5 py-0.5 rounded text-purple-200">Telegram Dispatched</span>
                     </div>
                 `).join('');
-            } else {
+            }} else {{
                 vipBanner.classList.add('hidden');
-            }
+            }}
 
             // Table
             const tbody = document.getElementById('resultsTableBody');
-            if (!leads || leads.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="6" class="px-6 py-6 text-center text-slate-500">No qualified leads generated.</td></tr>`;
-            } else {
-                tbody.innerHTML = leads.map((lead, idx) => {
+            if (!leads || leads.length === 0) {{
+                tbody.innerHTML = `<tr><td colspan="6" class="px-6 py-6 text-center text-slate-500">No qualified leads in database.</td></tr>`;
+            }} else {{
+                tbody.innerHTML = leads.map((lead, idx) => {{
                     let badge = '';
-                    if (lead.tier === 'ENTERPRISE') {
+                    if (lead.tier === 'ENTERPRISE') {{
                         badge = `<span class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40">
                             ⭐ VIP Enterprise
                         </span>`;
-                    } else if (lead.tier === 'GROWTH') {
+                    }} else if (lead.tier === 'GROWTH') {{
                         badge = `<span class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
                             🚀 Growth Tier
                         </span>`;
-                    } else if (lead.tier === 'STANDARD') {
+                    }} else if (lead.tier === 'STANDARD') {{
                         badge = `<span class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-blue-500/20 text-blue-300 border border-blue-500/40">
                             💼 Standard
                         </span>`;
-                    } else {
+                    }} else {{
                         badge = `<span class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-slate-800 text-slate-400 border border-slate-700">
                             ⚪ Unqualified
                         </span>`;
-                    }
+                    }}
 
                     return `
                         <tr class="hover:bg-slate-800/30 transition">
                             <td class="px-6 py-4">
-                                <div class="font-semibold text-white">${lead.name}</div>
-                                <div class="text-xs text-slate-400 font-mono">${lead.email}</div>
-                                <div class="text-[10px] text-slate-500 font-mono">${lead.lead_id}</div>
+                                <div class="font-semibold text-white">${{lead.name}}</div>
+                                <div class="text-xs text-slate-400 font-mono">${{lead.email}}</div>
+                                <div class="text-[10px] text-slate-500 font-mono">${{lead.lead_id}}</div>
                             </td>
                             <td class="px-6 py-4">
-                                <div class="text-white">${lead.company}</div>
-                                <div class="text-xs text-indigo-400">${lead.industry}</div>
+                                <div class="text-white">${{lead.company}}</div>
+                                <div class="text-xs text-indigo-400">${{lead.industry}}</div>
                             </td>
                             <td class="px-6 py-4 font-mono font-semibold text-emerald-400">
-                                $${lead.budget.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                $${{lead.budget.toLocaleString('en-US', {{ minimumFractionDigits: 2 }})}}
                             </td>
                             <td class="px-6 py-4">
-                                ${badge}
+                                ${{badge}}
                             </td>
                             <td class="px-6 py-4">
                                 <span class="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-xs font-mono font-bold text-indigo-300">
-                                    ${lead.score}/100
+                                    ${{lead.score}}/100
                                 </span>
                             </td>
                             <td class="px-6 py-4">
-                                <button onclick="viewEmailDraft(${idx})" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 text-xs font-semibold text-indigo-300 transition">
+                                <button onclick="viewEmailDraft(${{idx}})" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 text-xs font-semibold text-indigo-300 transition">
                                     <span>✉️ AI Draft</span>
                                 </button>
                             </td>
                         </tr>
                     `;
-                }).join('');
-            }
+                }}).join('');
+            }}
 
             // Error log
             const errSection = document.getElementById('errorLogSection');
             const errList = document.getElementById('errorLogList');
-            if (summary.validation_errors && summary.validation_errors.length > 0) {
+            if (summary.validation_errors && summary.validation_errors.length > 0) {{
                 errSection.classList.remove('hidden');
                 errList.innerHTML = summary.validation_errors.map(err => `
                     <div class="bg-rose-950/40 border border-rose-900/50 rounded-lg p-3 text-rose-300">
-                        <span class="font-semibold text-rose-200">Record #${err.batch_index} [${err.error_type}]:</span>
-                        <div class="mt-1 text-slate-300 whitespace-pre-wrap">${err.error_details}</div>
+                        <span class="font-semibold text-rose-200">Record #${{err.batch_index}} [${{err.error_type}}]:</span>
+                        <div class="mt-1 text-slate-300 whitespace-pre-wrap">${{err.error_details}}</div>
                     </div>
                 `).join('');
-            } else {
+            }} else {{
                 errSection.classList.add('hidden');
-            }
-        }
+            }}
+        }}
 
-        function viewEmailDraft(idx) {
+        function viewEmailDraft(idx) {{
             const lead = currentQualifiedLeads[idx];
             if (!lead) return;
 
-            document.getElementById('modalLeadInfo').innerText = `${lead.name} • ${lead.company} (${lead.tier})`;
+            document.getElementById('modalLeadInfo').innerText = `${{lead.name}} • ${{lead.company}} (${{lead.tier}})`;
             document.getElementById('modalEmailContent').innerText = lead.email_draft || 'No email draft available.';
             document.getElementById('emailModal').classList.remove('hidden');
-        }
+        }}
 
-        function closeEmailModal() {
+        function closeEmailModal() {{
             document.getElementById('emailModal').classList.add('hidden');
-        }
+        }}
 
-        function copyModalEmail() {
+        function copyModalEmail() {{
             const content = document.getElementById('modalEmailContent').innerText;
-            navigator.clipboard.writeText(content).then(() => {
+            navigator.clipboard.writeText(content).then(() => {{
                 const btn = document.getElementById('copyEmailBtn');
                 btn.innerHTML = '<span>✅ Copied!</span>';
-                setTimeout(() => {
+                setTimeout(() => {{
                     btn.innerHTML = '<span>📋 Copy Email</span>';
-                }, 2000);
-            });
-        }
+                }}, 2000);
+            }});
+        }}
 
         // Initialize and start live polling every 3 seconds
-        window.addEventListener('DOMContentLoaded', () => {
+        window.addEventListener('DOMContentLoaded', () => {{
             fetchLiveStatus();
             setInterval(fetchLiveStatus, 3000);
-        });
+        }});
     </script>
 </body>
 </html>
@@ -935,4 +1120,3 @@ def dashboard_ui() -> str:
 
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=False)
-
