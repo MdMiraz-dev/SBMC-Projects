@@ -204,6 +204,13 @@ async def workstation_agent_socket(
             if msg_type == "TELEMETRY":
                 telemetry = TelemetryPayload.model_validate(msg_json.get("data", {}))
                 await manager.record_telemetry(telemetry)
+            elif msg_type == "SCREEN_CAPTURE":
+                img_data = msg_json.get("image")
+                if img_data:
+                    st = manager.get_workstation(registered_client_id)
+                    if st:
+                        st.screen_thumbnail = img_data
+                        await manager.broadcast_admin_update()
             elif msg_type == "HEARTBEAT":
                 st = manager.get_workstation(registered_client_id)
                 if st:
@@ -254,6 +261,31 @@ class OverrideRequest(BaseModel):
 async def list_workstations() -> List[Dict[str, Any]]:
     """Returns all registered workstation states."""
     return [w.model_dump(mode="json") for w in manager.get_all_workstations()]
+
+
+@app.get("/api/admin/screen/{client_id}")
+async def get_workstation_screen(client_id: str):
+    """Returns the latest live screen capture thumbnail for the workstation."""
+    st = manager.get_workstation(client_id)
+    if not st:
+        raise HTTPException(status_code=404, detail="Workstation not found.")
+
+    # Request fresh frame over WebSocket if connected
+    cmd = AdminCommandPayload(
+        command=CommandType.CAPTURE_SCREEN,
+        target_client_id=client_id,
+        issued_by="Instructor Screen View",
+    )
+    await manager.send_command_to_client(client_id, cmd)
+
+    return {
+        "client_id": client_id,
+        "student_name": st.student_name,
+        "active_title": st.latest_telemetry.active_window_title if st.latest_telemetry else "",
+        "status": st.status.value,
+        "image": st.screen_thumbnail,
+        "captured_at": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 @app.get("/api/admin/alerts")

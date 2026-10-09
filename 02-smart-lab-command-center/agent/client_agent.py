@@ -18,6 +18,7 @@ from typing import Any, Dict, Optional
 
 import websockets
 
+from .screen_capture import ScreenCaptureEngine
 from .window_monitor import WindowMonitor
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] [AGENT] %(message)s")
@@ -47,7 +48,9 @@ class SmartLabAgent:
         self.mock_mode = mock_mode
 
         self.monitor = WindowMonitor()
+        self.screen_engine = ScreenCaptureEngine(is_mock=self.mock_mode)
         self.is_locked = False
+        self._last_title = "Visual Studio Code"
         self._running = True
 
     @property
@@ -87,6 +90,17 @@ class SmartLabAgent:
             cpu = round(random.uniform(9.0, 26.5), 1)
             ram = round(random.uniform(44.0, 56.5), 1)
 
+        self._last_title = title or "Visual Studio Code"
+        screen_b64 = self.screen_engine.capture_frame(
+            width=720,
+            height=405,
+            quality=55,
+            active_title=self._last_title,
+            client_id=self.client_id,
+            student_name=self.student_name,
+            is_locked=self.is_locked,
+        )
+
         return {
             "type": "TELEMETRY",
             "data": {
@@ -96,11 +110,12 @@ class SmartLabAgent:
                 "active_window_title": title,
                 "active_process_name": proc,
                 "is_idle": cpu < 2.0,
+                "screen_thumbnail": screen_b64,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             },
         }
 
-    async def handle_inbound_command(self, raw_message: str) -> None:
+    async def handle_inbound_command(self, raw_message: str, websocket: Optional[Any] = None) -> None:
         """Processes authorized administrative command received from central server."""
         try:
             cmd = json.loads(raw_message)
@@ -126,6 +141,26 @@ class SmartLabAgent:
                 print("\n" + "*" * 60)
                 print(f"[ANNOUNCEMENT] [INSTRUCTOR NOTICE]: {message_text}")
                 print("*" * 60 + "\n")
+
+            elif cmd_type == "CAPTURE_SCREEN":
+                logger.info("High-res screen capture requested by instructor.")
+                frame = self.screen_engine.capture_frame(
+                    width=960,
+                    height=540,
+                    quality=70,
+                    active_title=self._last_title,
+                    client_id=self.client_id,
+                    student_name=self.student_name,
+                    is_locked=self.is_locked,
+                )
+                if websocket:
+                    resp = {
+                        "type": "SCREEN_CAPTURE",
+                        "client_id": self.client_id,
+                        "image": frame,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }
+                    await websocket.send(json.dumps(resp))
 
             elif cmd_type == "SHUTDOWN":
                 logger.critical("SHUTDOWN DIRECTIVE RECEIVED. Initiating shutdown sequence.")
@@ -154,7 +189,7 @@ class SmartLabAgent:
         while self._running:
             try:
                 msg = await websocket.recv()
-                await self.handle_inbound_command(msg)
+                await self.handle_inbound_command(msg, websocket)
             except asyncio.CancelledError:
                 break
             except websockets.exceptions.ConnectionClosed:

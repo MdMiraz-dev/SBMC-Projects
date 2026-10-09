@@ -141,6 +141,8 @@ class LabConnectionManager:
 
         state.last_heartbeat = now
         state.latest_telemetry = telemetry
+        if telemetry.screen_thumbnail:
+            state.screen_thumbnail = telemetry.screen_thumbnail
 
         # Distraction Heuristic Evaluation
         report = self.detector.evaluate(

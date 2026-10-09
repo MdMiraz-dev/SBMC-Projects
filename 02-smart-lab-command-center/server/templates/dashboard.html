@@ -153,6 +153,63 @@
         </div>
     </div>
 
+    <!-- Live Screen Preview Modal (Veyon-style) -->
+    <div id="screenModal" class="hidden fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-6">
+        <div class="bg-slate-900 border border-slate-700/80 rounded-3xl max-w-4xl w-full p-4 sm:p-6 space-y-4 shadow-2xl relative">
+            <!-- Modal Header -->
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-lg">
+                        🖥️
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h3 id="screenModalTitle" class="text-base sm:text-lg font-bold text-white font-mono">LAB-PC-01</h3>
+                            <span id="screenModalStudent" class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-800 text-indigo-300 border border-slate-700"></span>
+                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                                <span>Live Veyon Stream</span>
+                            </span>
+                        </div>
+                        <p id="screenModalApp" class="text-xs text-slate-400 truncate mt-0.5 font-mono"></p>
+                    </div>
+                </div>
+                <button onclick="closeScreenModal()" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center text-sm font-bold transition">
+                    ✕
+                </button>
+            </div>
+
+            <!-- Live Screen Image Display Container -->
+            <div class="relative bg-black rounded-2xl overflow-hidden border border-slate-800 aspect-video flex items-center justify-center shadow-inner">
+                <img id="screenModalImg" src="" alt="Live Workstation Screen" class="w-full h-full object-contain" />
+                <div id="screenModalLoading" class="hidden absolute inset-0 bg-slate-950/80 flex flex-col items-center justify-center text-slate-400 gap-2">
+                    <span class="text-3xl animate-spin">🔄</span>
+                    <span class="text-xs font-mono">Streaming workstation display...</span>
+                </div>
+            </div>
+
+            <!-- Modal Bottom Actions Strip -->
+            <div class="flex flex-wrap items-center justify-between gap-3 pt-1">
+                <div class="flex items-center gap-2 text-xs text-slate-400 font-mono">
+                    <span>Frame: <strong class="text-emerald-400">Live Active</strong></span>
+                    <span>•</span>
+                    <span id="screenModalTime"></span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="requestFreshScreen()" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 transition flex items-center gap-1.5">
+                        <span>🔄 Refresh Frame</span>
+                    </button>
+                    <button id="screenModalLockBtn" onclick="toggleScreenModalLock()" class="px-3 py-1.5 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 text-xs font-bold text-purple-300 transition">
+                        <span>🔒 Lock PC</span>
+                    </button>
+                    <button onclick="openMsgModalFromScreen()" class="px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 text-xs font-bold text-indigo-300 transition">
+                        <span>📢 Message Student</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         let ws;
         let clusterData = { workstations: [], alerts: [] };
@@ -296,17 +353,41 @@
                                     </div>
                                 ` : ''}
                             </div>
+
+                            <!-- Live Screen Thumbnail (Veyon Preview) -->
+                            <div onclick="openScreenModal('${pc.client_id}', '${pc.student_name}')" class="relative group cursor-pointer overflow-hidden rounded-xl border border-slate-800/80 bg-slate-950 aspect-video flex items-center justify-center mt-3 shadow-inner">
+                                ${pc.screen_thumbnail ? `
+                                    <img src="${pc.screen_thumbnail}" alt="Live Preview" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
+                                ` : `
+                                    <div class="text-center p-3 text-slate-600 font-mono text-[11px]">
+                                        <span class="text-xl block mb-1">🖥️</span>
+                                        <span>Awaiting Stream...</span>
+                                    </div>
+                                `}
+                                <div class="absolute inset-0 bg-slate-950/70 opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-1.5 text-xs font-bold text-indigo-300 backdrop-blur-[2px]">
+                                    <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                                    <span>Expand Live View</span>
+                                </div>
+                            </div>
                         </div>
 
                         <!-- Card Action Buttons -->
-                        <div class="grid grid-cols-3 gap-1.5 pt-2 border-t border-slate-800/80">
-                            ${pc.curfew_locked ? `
-                                <button onclick="sendClientCommand('${pc.client_id}', 'UNLOCK')" class="py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-[11px] font-bold text-emerald-300 transition">Unlock</button>
-                            ` : `
-                                <button onclick="sendClientCommand('${pc.client_id}', 'LOCK')" class="py-1.5 rounded-lg bg-purple-600/20 hover:bg-purple-600/30 text-[11px] font-bold text-purple-300 transition">Lock</button>
-                            `}
-                            <button onclick="openMsgModal('${pc.client_id}')" class="py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-[11px] font-bold text-indigo-300 transition">Message</button>
-                            <button onclick="sendClientCommand('${pc.client_id}', 'SHUTDOWN')" class="py-1.5 rounded-lg bg-rose-600/20 hover:bg-rose-600/30 text-[11px] font-bold text-rose-300 transition">Power Off</button>
+                        <div class="space-y-2 pt-2 border-t border-slate-800/80">
+                            <!-- View Live Screen Button -->
+                            <button onclick="openScreenModal('${pc.client_id}', '${pc.student_name}')" class="w-full py-2 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 text-xs font-bold text-indigo-300 transition flex items-center justify-center gap-2 shadow-sm">
+                                <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                                <span>View Live Screen</span>
+                            </button>
+
+                            <div class="grid grid-cols-3 gap-1.5">
+                                ${pc.curfew_locked ? `
+                                    <button onclick="sendClientCommand('${pc.client_id}', 'UNLOCK')" class="py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-[11px] font-bold text-emerald-300 transition">Unlock</button>
+                                ` : `
+                                    <button onclick="sendClientCommand('${pc.client_id}', 'LOCK')" class="py-1.5 rounded-lg bg-purple-600/20 hover:bg-purple-600/30 text-[11px] font-bold text-purple-300 transition">Lock</button>
+                                `}
+                                <button onclick="openMsgModal('${pc.client_id}')" class="py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] font-bold text-slate-300 transition">Message</button>
+                                <button onclick="sendClientCommand('${pc.client_id}', 'SHUTDOWN')" class="py-1.5 rounded-lg bg-rose-600/20 hover:bg-rose-600/30 text-[11px] font-bold text-rose-300 transition">Power Off</button>
+                            </div>
                         </div>
                     </div>
                 `;
@@ -405,6 +486,81 @@
             if (text && activeModalTarget) {
                 sendClientCommand(activeModalTarget, 'BROADCAST_MESSAGE', text);
                 closeMsgModal();
+            }
+        }
+
+        // Screen Modal Helpers
+        let activeScreenTarget = null;
+        let screenRefreshTimer = null;
+
+        async function openScreenModal(clientId, studentName) {
+            activeScreenTarget = clientId;
+            document.getElementById('screenModalTitle').innerText = clientId;
+            document.getElementById('screenModalStudent').innerText = studentName;
+            document.getElementById('screenModal').classList.remove('hidden');
+
+            const pc = (clusterData.workstations || []).find(w => w.client_id === clientId);
+            if (pc) {
+                const appTitle = pc.latest_telemetry ? pc.latest_telemetry.active_window_title : 'Active Session';
+                document.getElementById('screenModalApp').innerText = `Active Window: ${appTitle}`;
+                if (pc.screen_thumbnail) {
+                    document.getElementById('screenModalImg').src = pc.screen_thumbnail;
+                    document.getElementById('screenModalLoading').classList.add('hidden');
+                } else {
+                    document.getElementById('screenModalLoading').classList.remove('hidden');
+                }
+            }
+
+            document.getElementById('screenModalTime').innerText = `Updated: ${new Date().toLocaleTimeString()}`;
+            await requestFreshScreen();
+
+            // Auto-refresh loop while modal is open (every 3s)
+            if (screenRefreshTimer) clearInterval(screenRefreshTimer);
+            screenRefreshTimer = setInterval(requestFreshScreen, 3000);
+        }
+
+        function closeScreenModal() {
+            document.getElementById('screenModal').classList.add('hidden');
+            activeScreenTarget = null;
+            if (screenRefreshTimer) {
+                clearInterval(screenRefreshTimer);
+                screenRefreshTimer = null;
+            }
+        }
+
+        async function requestFreshScreen() {
+            if (!activeScreenTarget) return;
+            try {
+                const res = await fetch(`/api/admin/screen/${activeScreenTarget}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.image) {
+                        document.getElementById('screenModalImg').src = data.image;
+                        document.getElementById('screenModalLoading').classList.add('hidden');
+                    }
+                    if (data.active_title) {
+                        document.getElementById('screenModalApp').innerText = `Active Window: ${data.active_title}`;
+                    }
+                    document.getElementById('screenModalTime').innerText = `Updated: ${new Date().toLocaleTimeString()}`;
+                }
+            } catch (err) {
+                console.error('Failed to refresh screen:', err);
+            }
+        }
+
+        function toggleScreenModalLock() {
+            if (!activeScreenTarget) return;
+            const pc = (clusterData.workstations || []).find(w => w.client_id === activeScreenTarget);
+            const isLocked = pc && pc.curfew_locked;
+            const cmd = isLocked ? 'UNLOCK' : 'LOCK';
+            sendClientCommand(activeScreenTarget, cmd);
+            const btn = document.getElementById('screenModalLockBtn');
+            btn.innerText = isLocked ? '🔒 Lock PC' : '🔓 Unlock PC';
+        }
+
+        function openMsgModalFromScreen() {
+            if (activeScreenTarget) {
+                openMsgModal(activeScreenTarget);
             }
         }
 

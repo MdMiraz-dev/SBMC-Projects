@@ -28,6 +28,7 @@ class CommandType(str, Enum):
     REBOOT = "REBOOT"
     BROADCAST_MESSAGE = "BROADCAST_MESSAGE"
     KILL_PROCESS = "KILL_PROCESS"
+    CAPTURE_SCREEN = "CAPTURE_SCREEN"
 
 
 class DistractionCategory(str, Enum):
@@ -75,6 +76,7 @@ class TelemetryPayload(BaseModel):
     active_window_title: str = Field(default="", max_length=512)
     active_process_name: str = Field(default="", max_length=128)
     is_idle: bool = Field(default=False)
+    screen_thumbnail: Optional[str] = Field(default=None, description="Base64 encoded JPEG thumbnail data URI")
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @field_validator("active_window_title", "active_process_name")
@@ -103,6 +105,7 @@ class WorkstationState(BaseModel):
     status: WorkstationStatus = WorkstationStatus.ONLINE
     last_heartbeat: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     latest_telemetry: Optional[TelemetryPayload] = None
+    screen_thumbnail: Optional[str] = None
     distraction_report: Optional[DistractionReport] = None
     violation_count: int = 0
     curfew_locked: bool = False
