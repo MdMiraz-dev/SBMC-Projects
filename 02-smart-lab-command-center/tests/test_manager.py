@@ -113,3 +113,59 @@ async def test_command_dispatch_locks_state(manager: LabConnectionManager):
     state = manager.get_workstation("LAB-PC-04")
     assert state.curfew_locked is True
     assert state.status == WorkstationStatus.CURFEW_LOCKED
+
+
+@pytest.mark.asyncio
+async def test_application_usage_audit_log(manager: LabConnectionManager):
+    """Verifies that inbound telemetry tracks app dwell time and produces sorted audit logs."""
+    mock_ws = AsyncMock()
+    reg = ClientRegistration(
+        client_id="LAB-PC-05",
+        hostname="PC-05",
+        ip_address="192.168.1.55",
+        student_name="Zubair Ahmed",
+    )
+    await manager.register_workstation(reg, mock_ws)
+
+    # First telemetry tick for VS Code
+    t1 = TelemetryPayload(
+        client_id="LAB-PC-05",
+        cpu_percent=12.0,
+        ram_percent=40.0,
+        active_window_title="main.py - Visual Studio Code",
+        active_process_name="Code.exe",
+    )
+    await manager.record_telemetry(t1)
+
+    # Second telemetry tick for VS Code (+5 seconds)
+    await manager.record_telemetry(t1)
+
+    # Telemetry tick for YouTube Shorts (Distraction)
+    t2 = TelemetryPayload(
+        client_id="LAB-PC-05",
+        cpu_percent=18.0,
+        ram_percent=55.0,
+        active_window_title="YouTube Shorts - Cat Compilation",
+        active_process_name="chrome.exe",
+    )
+    await manager.record_telemetry(t2)
+
+    audit_logs = manager.get_audit_log()
+    assert len(audit_logs) == 2
+
+    # First record should have highest dwell time (VS Code: 10s)
+    assert audit_logs[0]["process_name"] == "Code.exe"
+    assert audit_logs[0]["total_seconds"] == 10
+    assert audit_logs[0]["formatted_time"] == "10s"
+
+    # Second record should be Chrome: 5s, marked as distracted
+    assert audit_logs[1]["process_name"] == "chrome.exe"
+    assert audit_logs[1]["total_seconds"] == 5
+    assert audit_logs[1]["is_distracted"] is True
+
+    # Filtered audit log by client_id
+    filtered = manager.get_audit_log(client_id="LAB-PC-05")
+    assert len(filtered) == 2
+    empty = manager.get_audit_log(client_id="NON-EXISTENT")
+    assert len(empty) == 0
+

@@ -362,3 +362,9 @@ async def set_curfew_override(payload: OverrideRequest):
         "override_active": curfew_engine.config.override_active,
         "reason": curfew_engine.config.override_reason,
     }
+
+
+@app.get("/api/admin/audit-log")
+async def get_audit_log(client_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Returns application usage time audit log across all workstations or for a specific workstation."""
+    return manager.get_audit_log(client_id=client_id)

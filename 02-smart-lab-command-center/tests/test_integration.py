@@ -65,3 +65,19 @@ def test_api_command_broadcast_endpoint(client: TestClient):
     data = response.json()
     assert data["status"] == "success"
     assert data["command"] == "BROADCAST_MESSAGE"
+
+
+def test_api_audit_log_endpoint(client: TestClient):
+    """Verifies GET /api/admin/audit-log returns a valid JSON list."""
+    response = client.get("/api/admin/audit-log")
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, list)
+
+
+def test_api_screen_not_found(client: TestClient):
+    """Verifies GET /api/admin/screen/{client_id} returns 404 for unknown client."""
+    response = client.get("/api/admin/screen/NON-EXISTENT-PC")
+    assert response.status_code == 404
+    assert "not found" in response.json()["detail"].lower()
+

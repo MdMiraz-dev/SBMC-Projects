@@ -32,13 +32,14 @@
             </div>
 
             <!-- Top Right: Curfew Clock & Live Badge -->
+            <!-- Top Right: Curfew Clock & Live Badge -->
             <div class="flex flex-wrap items-center gap-3">
-                <!-- Live Clock -->
+                <!-- Live Clock & Schedule -->
                 <div class="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center gap-2 font-mono text-xs">
                     <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
                     <span id="liveClock" class="text-white font-bold">--:--:--</span>
                     <span class="text-slate-500">|</span>
-                    <span class="text-indigo-400">Curfew: <strong>21:00</strong></span>
+                    <span class="text-indigo-400">Curfew: <strong>21:00 Lock/Off</strong> → <strong class="text-emerald-400">08:00 AM Open</strong></span>
                 </div>
 
                 <div id="connectionBadge" class="px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold flex items-center gap-1.5">
@@ -69,32 +70,32 @@
                 <div id="statTampered" class="text-2xl font-extrabold text-amber-400 mt-1">0</div>
             </div>
             <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 col-span-2 sm:col-span-1">
-                <span class="text-xs text-purple-400 font-medium">Curfew Status</span>
-                <div id="statCurfew" class="text-sm font-bold text-purple-300 mt-2">Active (21:00)</div>
+                <span class="text-xs text-purple-400 font-medium">Curfew Schedule</span>
+                <div id="statCurfew" class="text-sm font-bold text-purple-300 mt-2">21:00 - 08:00 AM</div>
             </div>
         </div>
 
         <!-- Master Command Control Bar -->
         <div class="bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-wrap items-center justify-between gap-3 shadow-xl">
             <div class="flex items-center gap-2">
-                <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Lab Master Actions:</span>
+                <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Lab Master Controls:</span>
             </div>
 
             <div class="flex flex-wrap items-center gap-2">
                 <button onclick="broadcastCommand('LOCK')" class="px-3.5 py-2 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/40 text-purple-300 text-xs font-bold transition flex items-center gap-1.5 shadow-sm">
-                    <span>🔒 Lock All Screens</span>
+                    <span>🔒 Instant Lock All</span>
                 </button>
                 <button onclick="broadcastCommand('UNLOCK')" class="px-3.5 py-2 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 text-xs font-bold transition flex items-center gap-1.5 shadow-sm">
-                    <span>🔓 Unlock All</span>
+                    <span>🔓 Instant Unlock All</span>
+                </button>
+                <button onclick="confirmLabShutdown()" class="px-3.5 py-2 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/40 text-rose-300 text-xs font-bold transition flex items-center gap-1.5 shadow-sm">
+                    <span>⚡ Instant Shutdown All</span>
                 </button>
                 <button onclick="promptBroadcastMessage()" class="px-3.5 py-2 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 text-xs font-bold transition flex items-center gap-1.5 shadow-sm">
                     <span>📢 Broadcast Message</span>
                 </button>
                 <button onclick="toggleCurfewOverride()" id="overrideBtn" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-semibold transition flex items-center gap-1.5">
                     <span>⚙️ Curfew Override</span>
-                </button>
-                <button onclick="confirmLabShutdown()" class="px-3.5 py-2 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/40 text-rose-300 text-xs font-bold transition flex items-center gap-1.5 shadow-sm">
-                    <span>⚡ Emergency Shutdown</span>
                 </button>
             </div>
         </div>
@@ -139,6 +140,54 @@
                 <p class="text-xs text-slate-600 mt-1">Start workstation client agents using: <code>python -m agent.client_agent</code></p>
             </div>
         </div>
+
+        <!-- Application Usage Audit Log Section -->
+        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-xl">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-xl">
+                        ⏱️
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h3 class="font-extrabold text-base text-white">Application Usage Audit Log</h3>
+                            <span id="auditCountBadge" class="px-2 py-0.5 rounded-full text-[11px] font-mono bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">0 Records</span>
+                        </div>
+                        <p class="text-xs text-slate-400">Real-time dwell time tracking across software, IDEs, and browser windows</p>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <input type="text" id="auditSearchInput" onkeyup="filterAuditTable()" placeholder="Filter by student, app, or window..." class="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 w-52 sm:w-64" />
+                    <button onclick="refreshAuditLog()" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 transition flex items-center gap-1">
+                        <span>🔄</span> Refresh
+                    </button>
+                </div>
+            </div>
+
+            <!-- Audit Log Table -->
+            <div class="overflow-x-auto rounded-xl border border-slate-800/80">
+                <table class="w-full text-left border-collapse text-xs">
+                    <thead>
+                        <tr class="bg-slate-950/80 text-slate-400 border-b border-slate-800 font-mono text-[11px]">
+                            <th class="py-3 px-4">Student & PC</th>
+                            <th class="py-3 px-4">Process Name</th>
+                            <th class="py-3 px-4">Window Title / URL Activity</th>
+                            <th class="py-3 px-4">Category</th>
+                            <th class="py-3 px-4 text-right">Time Spent</th>
+                            <th class="py-3 px-4 text-right">Last Active</th>
+                        </tr>
+                    </thead>
+                    <tbody id="auditTableBody" class="divide-y divide-slate-800/60 font-mono">
+                        <tr>
+                            <td colspan="6" class="py-8 text-center text-slate-500 font-sans">
+                                <span>No application usage telemetry recorded yet. Active dwell time will update here.</span>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </main>
 
     <!-- Client Message Modal -->
@@ -174,13 +223,18 @@
                         <p id="screenModalApp" class="text-xs text-slate-400 truncate mt-0.5 font-mono"></p>
                     </div>
                 </div>
-                <button onclick="closeScreenModal()" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center text-sm font-bold transition">
-                    ✕
-                </button>
+                <div class="flex items-center gap-2">
+                    <button onclick="toggleModalFullscreen()" title="Toggle Fullscreen" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center text-xs font-bold transition">
+                        ⛶
+                    </button>
+                    <button onclick="closeScreenModal()" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center text-sm font-bold transition">
+                        ✕
+                    </button>
+                </div>
             </div>
 
             <!-- Live Screen Image Display Container -->
-            <div class="relative bg-black rounded-2xl overflow-hidden border border-slate-800 aspect-video flex items-center justify-center shadow-inner">
+            <div id="screenModalImgContainer" class="relative bg-black rounded-2xl overflow-hidden border border-slate-800 aspect-video flex items-center justify-center shadow-inner">
                 <img id="screenModalImg" src="" alt="Live Workstation Screen" class="w-full h-full object-contain" />
                 <div id="screenModalLoading" class="hidden absolute inset-0 bg-slate-950/80 flex flex-col items-center justify-center text-slate-400 gap-2">
                     <span class="text-3xl animate-spin">🔄</span>
@@ -263,6 +317,10 @@
             document.getElementById('statDistracted').innerText = data.total_distracted;
             document.getElementById('statTampered').innerText = data.total_tampered;
             document.getElementById('gridCountBadge').innerText = `${data.workstations.length} PCs`;
+
+            if (data.audit_log) {
+                renderAuditLog(data.audit_log);
+            }
 
             // Tamper Alerts Section
             const alertSec = document.getElementById('tamperAlertSection');
@@ -514,9 +572,9 @@
             document.getElementById('screenModalTime').innerText = `Updated: ${new Date().toLocaleTimeString()}`;
             await requestFreshScreen();
 
-            // Auto-refresh loop while modal is open (every 3s)
+            // Auto-refresh loop while modal is open (every 1.5s for responsive streaming)
             if (screenRefreshTimer) clearInterval(screenRefreshTimer);
-            screenRefreshTimer = setInterval(requestFreshScreen, 3000);
+            screenRefreshTimer = setInterval(requestFreshScreen, 1500);
         }
 
         function closeScreenModal() {
@@ -525,6 +583,22 @@
             if (screenRefreshTimer) {
                 clearInterval(screenRefreshTimer);
                 screenRefreshTimer = null;
+            }
+        }
+
+        function toggleModalFullscreen() {
+            const container = document.getElementById('screenModalImgContainer');
+            if (!container) return;
+            if (!document.fullscreenElement) {
+                if (container.requestFullscreen) {
+                    container.requestFullscreen();
+                } else if (container.webkitRequestFullscreen) {
+                    container.webkitRequestFullscreen();
+                }
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                }
             }
         }
 
@@ -564,8 +638,90 @@
             }
         }
 
-        // Start WS
-        window.addEventListener('DOMContentLoaded', initWebSocket);
+        // ==============================================================================
+        // Application Usage Audit Log Management
+        // ==============================================================================
+        let auditLogsCache = [];
+
+        function renderAuditLog(records) {
+            if (!records) records = [];
+            auditLogsCache = records;
+            filterAuditTable();
+        }
+
+        function filterAuditTable() {
+            const query = (document.getElementById('auditSearchInput')?.value || '').toLowerCase().trim();
+            const tbody = document.getElementById('auditTableBody');
+            const badge = document.getElementById('auditCountBadge');
+            if (!tbody) return;
+
+            const filtered = auditLogsCache.filter(r => {
+                if (!query) return true;
+                return (r.student_name || '').toLowerCase().includes(query) ||
+                       (r.client_id || '').toLowerCase().includes(query) ||
+                       (r.process_name || '').toLowerCase().includes(query) ||
+                       (r.window_title || '').toLowerCase().includes(query) ||
+                       (r.category || '').toLowerCase().includes(query);
+            });
+
+            if (badge) badge.innerText = `${filtered.length} Records`;
+
+            if (filtered.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="6" class="py-8 text-center text-slate-500 font-sans">
+                            ${query ? 'No audit records match your search filter.' : 'No application usage telemetry recorded yet. Active dwell time will appear here.'}
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            tbody.innerHTML = filtered.map(r => {
+                let catBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-300">SYSTEM</span>';
+                if (r.is_distracted) {
+                    catBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">DISTRACTION</span>';
+                } else if (r.category === 'EDUCATIONAL') {
+                    catBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">EDUCATIONAL</span>';
+                } else if (r.category === 'DEVELOPMENT') {
+                    catBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">DEV / CODING</span>';
+                }
+
+                const lastSeenFormatted = r.last_seen ? new Date(r.last_seen).toLocaleTimeString() : '--';
+
+                return `
+                    <tr class="hover:bg-slate-800/40 transition">
+                        <td class="py-3 px-4 font-bold text-white">
+                            <div>${r.student_name || 'Student'}</div>
+                            <div class="text-[10px] text-slate-500 font-normal">${r.client_id}</div>
+                        </td>
+                        <td class="py-3 px-4 text-indigo-300 font-semibold">${r.process_name}</td>
+                        <td class="py-3 px-4 text-slate-300 max-w-xs truncate" title="${r.window_title}">${r.window_title}</td>
+                        <td class="py-3 px-4">${catBadge}</td>
+                        <td class="py-3 px-4 text-right font-bold text-emerald-400">${r.formatted_time || (r.total_seconds + 's')}</td>
+                        <td class="py-3 px-4 text-right text-slate-400">${lastSeenFormatted}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        async function refreshAuditLog() {
+            try {
+                const res = await fetch('/api/admin/audit-log');
+                if (res.ok) {
+                    const data = await res.json();
+                    renderAuditLog(data);
+                }
+            } catch (err) {
+                console.error('Failed to fetch audit log:', err);
+            }
+        }
+
+        // Start WS & Audit Load
+        window.addEventListener('DOMContentLoaded', () => {
+            initWebSocket();
+            refreshAuditLog();
+        });
     </script>
 </body>
 </html>

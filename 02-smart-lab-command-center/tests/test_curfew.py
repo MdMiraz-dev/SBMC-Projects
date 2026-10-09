@@ -91,3 +91,20 @@ def test_instructor_curfew_override(curfew: CurfewEngine):
     assert decision.action_required is False
     assert decision.suggested_command is None
     assert "Extended Final Exam Session" in decision.reason
+
+
+def test_curfew_morning_reopen_boundary(curfew: CurfewEngine):
+    """Asserts that lab curfew ends and normal operations resume at 08:00 AM."""
+    # 07:59:59 AM -> Still in overnight curfew shutdown
+    dt_before_open = _make_dt(7, 59, 59)
+    dec_before = curfew.evaluate(dt_before_open)
+    assert dec_before.stage == CurfewStage.AUTO_SHUTDOWN
+    assert dec_before.action_required is True
+
+    # 08:00:00 AM -> Reopened, NORMAL operations
+    dt_open = _make_dt(8, 0, 0)
+    dec_open = curfew.evaluate(dt_open)
+    assert dec_open.stage == CurfewStage.NORMAL
+    assert dec_open.action_required is False
+    assert dec_open.suggested_command is None
+

@@ -109,6 +109,20 @@ class WorkstationState(BaseModel):
     distraction_report: Optional[DistractionReport] = None
     violation_count: int = 0
     curfew_locked: bool = False
+    app_usage: Dict[str, "AppUsageRecord"] = Field(default_factory=dict)
+
+
+class AppUsageRecord(BaseModel):
+    """Time-tracking record for application usage per workstation."""
+    client_id: str
+    student_name: str
+    process_name: str
+    window_title: str
+    category: DistractionCategory = DistractionCategory.ALLOWED
+    total_seconds: int = Field(default=0, ge=0)
+    first_seen: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_seen: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    is_distracted: bool = False
 
 
 class AdminCommandPayload(BaseModel):
@@ -141,11 +155,12 @@ class CurfewConfig(BaseModel):
     warning_2m: str = Field(default="20:58", description="HH:MM format for 2-minute warning")
     curfew_lock: str = Field(default="21:00", description="HH:MM format for screen lock")
     auto_shutdown: str = Field(default="21:05", description="HH:MM format for lab shutdown")
+    morning_open: str = Field(default="08:00", description="HH:MM format for morning reopening")
     enabled: bool = True
     override_active: bool = False
     override_reason: Optional[str] = None
 
-    @field_validator("warning_10m", "warning_2m", "curfew_lock", "auto_shutdown")
+    @field_validator("warning_10m", "warning_2m", "curfew_lock", "auto_shutdown", "morning_open")
     @classmethod
     def validate_hh_mm(cls, v: str) -> str:
         if not re.match(r"^([01]\d|2[0-3]):([0-5]\d)$", v):

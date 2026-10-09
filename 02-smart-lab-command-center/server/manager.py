@@ -16,6 +16,7 @@ from fastapi import WebSocket
 from .detector import DistractionDetector
 from .schemas import (
     AdminCommandPayload,
+    AppUsageRecord,
     ClientRegistration,
     DistractionCategory,
     TamperAlertEvent,
@@ -151,6 +152,31 @@ class LabConnectionManager:
         )
         state.distraction_report = report
 
+        # Real-time Application Usage Time-Tracking
+        proc = (telemetry.active_process_name or "").strip() or "System / Idle"
+        title = (telemetry.active_window_title or "").strip() or "Desktop Session"
+        usage_key = f"{proc}::{title[:40]}"
+
+        if usage_key in state.app_usage:
+            record = state.app_usage[usage_key]
+            record.total_seconds += 5
+            record.window_title = title
+            record.last_seen = now
+            record.category = report.category
+            record.is_distracted = report.is_distracted
+        else:
+            state.app_usage[usage_key] = AppUsageRecord(
+                client_id=client_id,
+                student_name=state.student_name,
+                process_name=proc,
+                window_title=title,
+                category=report.category,
+                total_seconds=5,
+                first_seen=now,
+                last_seen=now,
+                is_distracted=report.is_distracted,
+            )
+
         if report.is_distracted:
             state.status = WorkstationStatus.DISTRACTED
             state.violation_count += 1
@@ -163,6 +189,29 @@ class LabConnectionManager:
 
         await self.broadcast_admin_update()
         return state
+
+    def get_audit_log(self, client_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Returns consolidated application usage audit log records sorted by time spent."""
+        records: List[Dict[str, Any]] = []
+        for cid, state in self._workstations.items():
+            if client_id and cid != client_id:
+                continue
+            for app_key, record in state.app_usage.items():
+                rec_dict = record.model_dump(mode="json")
+                rec_dict["formatted_time"] = self._format_duration(record.total_seconds)
+                records.append(rec_dict)
+        return sorted(records, key=lambda r: r["total_seconds"], reverse=True)
+
+    @staticmethod
+    def _format_duration(seconds: int) -> str:
+        """Formats seconds into human readable duration e.g. '1h 15m 30s'."""
+        if seconds < 60:
+            return f"{seconds}s"
+        m, s = divmod(seconds, 60)
+        h, m = divmod(m, 60)
+        if h > 0:
+            return f"{h}h {m}m {s}s"
+        return f"{m}m {s}s"
 
     async def handle_disconnect(self, client_id: str) -> None:
         """Handles graceful or abrupt socket closure of a workstation agent."""
@@ -282,6 +331,7 @@ class LabConnectionManager:
             "total_tampered": sum(1 for w in self._workstations.values() if w.status == WorkstationStatus.DISCONNECTED_TAMPERED),
             "workstations": [w.model_dump(mode="json") for w in self.get_all_workstations()],
             "alerts": [a.model_dump(mode="json") for a in self.get_active_alerts()],
+            "audit_log": self.get_audit_log(),
         }
         encoded = json.dumps(payload)
 

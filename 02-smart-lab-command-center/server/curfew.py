@@ -84,16 +84,16 @@ class CurfewEngine:
         t_2m = self._parse_time(self.config.warning_2m)
         t_lock = self._parse_time(self.config.curfew_lock)
         t_shutdown = self._parse_time(self.config.auto_shutdown)
-        t_morning_open = time(6, 0)  # Lab opens at 06:00 AM
+        t_morning_open = self._parse_time(self.config.morning_open)
 
-        # Case 1: Post 21:05 (Shutdown trigger until morning 06:00)
+        # Case 1: Post 21:05 (Shutdown trigger until morning reopening at 08:00)
         if (now >= t_shutdown) or (now < t_morning_open):
             return CurfewDecision(
                 stage=CurfewStage.AUTO_SHUTDOWN,
                 action_required=True,
                 suggested_command=CommandType.SHUTDOWN,
-                broadcast_message="Curfew 21:05 reached. As-Sunnah Smart Lab automated graceful shutdown initiated.",
-                reason="Curfew auto-shutdown hour reached. Workstations powering down.",
+                broadcast_message=f"Lab Curfew in effect until {self.config.morning_open}. Workstations powered off.",
+                reason=f"Curfew hours active (Reopens at {self.config.morning_open}).",
             )
 
         # Case 2: 21:00 to 21:04:59 (Curfew Screen Lock)
@@ -126,8 +126,8 @@ class CurfewEngine:
                 reason="20:50 10-minute preparatory curfew warning.",
             )
 
-        # Case 5: Normal Operational Hours (06:00 to 20:49:59)
+        # Case 5: Normal Operational Hours (morning_open to 20:49:59)
         return CurfewDecision(
             stage=CurfewStage.NORMAL,
-            reason="Within standard lab operating hours.",
+            reason=f"Within standard lab operating hours ({self.config.morning_open} - {self.config.curfew_lock}).",
         )
