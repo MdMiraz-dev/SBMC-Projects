@@ -40,11 +40,15 @@ SERVER_PORT: int = int(os.getenv("SERVER_PORT", "8500"))
 LAB_CLUSTER_SECRET: str = os.getenv("LAB_CLUSTER_SECRET", "as_sunnah_lab_agent_secret_2026")
 ADMIN_SECRET_KEY: str = os.getenv("ADMIN_SECRET_KEY", "sbmc_smart_lab_admin_token_2026")
 HEARTBEAT_TIMEOUT_SECONDS: float = float(os.getenv("HEARTBEAT_TIMEOUT_SECONDS", "15.0"))
+CURFEW_ENABLED: bool = os.getenv("CURFEW_ENABLED", "true").lower() in ("true", "1", "yes")
+DEMO_MODE: bool = os.getenv("DEMO_MODE", "false").lower() in ("true", "1", "yes")
 
 # Core Singletons
 detector = DistractionDetector()
 manager = LabConnectionManager(detector=detector)
-curfew_engine = CurfewEngine()
+curfew_engine = CurfewEngine(config=CurfewConfig(enabled=CURFEW_ENABLED))
+if DEMO_MODE:
+    curfew_engine.set_override(True, "Live Demo Session (Curfew Override Active)")
 
 # Background Watchdog Tasks
 _watchdog_tasks: List[asyncio.Task] = []

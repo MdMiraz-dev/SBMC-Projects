@@ -56,12 +56,13 @@ class SmartLabAgent:
 
     def build_registration_payload(self) -> Dict[str, Any]:
         """Constructs initial handshake registration packet."""
+        ip = "192.168.1.101" if self.mock_mode else self.monitor.get_local_ip()
         return {
             "type": "REGISTER",
             "data": {
                 "client_id": self.client_id,
                 "hostname": self.hostname,
-                "ip_address": self.monitor.get_local_ip(),
+                "ip_address": ip,
                 "os_info": f"{platform.system()} {platform.release()}",
                 "student_name": self.student_name,
                 "agent_version": "1.0.0",
@@ -73,9 +74,18 @@ class SmartLabAgent:
         cpu, ram = self.monitor.get_hardware_stats()
         title, proc = self.monitor.get_active_window()
 
-        if self.mock_mode and not title:
-            title = "Visual Studio Code - Python Programming"
-            proc = "Code.exe"
+        if self.mock_mode:
+            import random
+            self._mock_step = getattr(self, "_mock_step", 0) + 1
+            mock_titles = [
+                ("Visual Studio Code - main.py (As-Sunnah Python Lab 04)", "Code.exe"),
+                ("FastAPI Web Development Tutorial - YouTube", "chrome.exe"),
+                ("As-Sunnah Foundation Computer Training - Lab Notes", "msedge.exe"),
+                ("Terminal - git commit -m 'feat: complete lab task'", "powershell.exe"),
+            ]
+            title, proc = mock_titles[self._mock_step % len(mock_titles)]
+            cpu = round(random.uniform(9.0, 26.5), 1)
+            ram = round(random.uniform(44.0, 56.5), 1)
 
         return {
             "type": "TELEMETRY",
@@ -102,7 +112,7 @@ class SmartLabAgent:
                 self.is_locked = True
                 logger.warning("WORKSTATION LOCKED BY INSTRUCTOR / CURFEW")
                 print("\n" + "=" * 60)
-                print("🔒 [AS-SUNNAH LAB] WORKSTATION LOCKED BY INSTRUCTOR")
+                print("[LOCKED] [AS-SUNNAH LAB] WORKSTATION LOCKED BY INSTRUCTOR")
                 if message_text:
                     print(f"Notice: {message_text}")
                 print("=" * 60 + "\n")
@@ -110,16 +120,16 @@ class SmartLabAgent:
             elif cmd_type == "UNLOCK":
                 self.is_locked = False
                 logger.info("WORKSTATION UNLOCKED BY INSTRUCTOR")
-                print("\n🔓 Workstation unlocked. Resuming normal session.\n")
+                print("\n[UNLOCKED] Workstation unlocked. Resuming normal session.\n")
 
             elif cmd_type == "BROADCAST_MESSAGE":
                 print("\n" + "*" * 60)
-                print(f"📢 [INSTRUCTOR NOTICE]: {message_text}")
+                print(f"[ANNOUNCEMENT] [INSTRUCTOR NOTICE]: {message_text}")
                 print("*" * 60 + "\n")
 
             elif cmd_type == "SHUTDOWN":
                 logger.critical("SHUTDOWN DIRECTIVE RECEIVED. Initiating shutdown sequence.")
-                print("\n⚡ [CURFEW SHUTDOWN] Shutting down lab computer in 15 seconds...\n")
+                print("\n[POWER OFF] [CURFEW SHUTDOWN] Shutting down lab computer in 15 seconds...\n")
                 if not self.mock_mode and platform.system() == "Windows":
                     os.system("shutdown /s /t 15 /c \"As-Sunnah Lab Curfew Initiated\"")
 
