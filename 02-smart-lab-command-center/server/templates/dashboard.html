@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Lab Command Center — As-Sunnah Computer Lab</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+        .font-mono { font-family: 'JetBrains Mono', monospace; }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen antialiased">
+    <!-- Top Navigation -->
+    <header class="border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-40">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <!-- Brand & Lab Identifier -->
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 via-teal-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-emerald-500/20 flex-shrink-0">
+                    <span class="text-xl">🖥️</span>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <h1 class="font-extrabold text-lg text-white">Smart Lab Command Center</h1>
+                        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                            As-Sunnah Lab Edition
+                        </span>
+                    </div>
+                    <p class="text-xs text-slate-400">Live Workstation Telemetry • Distraction Detection • 21:00 Curfew Enforcer</p>
+                </div>
+            </div>
+
+            <!-- Top Right: Curfew Clock & Live Badge -->
+            <div class="flex flex-wrap items-center gap-3">
+                <!-- Live Clock -->
+                <div class="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center gap-2 font-mono text-xs">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span id="liveClock" class="text-white font-bold">--:--:--</span>
+                    <span class="text-slate-500">|</span>
+                    <span class="text-indigo-400">Curfew: <strong>21:00</strong></span>
+                </div>
+
+                <div id="connectionBadge" class="px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold flex items-center gap-1.5">
+                    <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+                    <span>Connecting WS...</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+        <!-- Master Metrics Strip -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
+            <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
+                <span class="text-xs text-slate-400 font-medium">Registered PCs</span>
+                <div id="statTotal" class="text-2xl font-extrabold text-white mt-1">0</div>
+            </div>
+            <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
+                <span class="text-xs text-emerald-400 font-medium">Online & Active</span>
+                <div id="statOnline" class="text-2xl font-extrabold text-emerald-400 mt-1">0</div>
+            </div>
+            <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
+                <span class="text-xs text-rose-400 font-medium">Distracted / Reels</span>
+                <div id="statDistracted" class="text-2xl font-extrabold text-rose-400 mt-1">0</div>
+            </div>
+            <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
+                <span class="text-xs text-amber-400 font-medium">Tampered / Silent</span>
+                <div id="statTampered" class="text-2xl font-extrabold text-amber-400 mt-1">0</div>
+            </div>
+            <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 col-span-2 sm:col-span-1">
+                <span class="text-xs text-purple-400 font-medium">Curfew Status</span>
+                <div id="statCurfew" class="text-sm font-bold text-purple-300 mt-2">Active (21:00)</div>
+            </div>
+        </div>
+
+        <!-- Master Command Control Bar -->
+        <div class="bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-wrap items-center justify-between gap-3 shadow-xl">
+            <div class="flex items-center gap-2">
+                <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Lab Master Actions:</span>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+                <button onclick="broadcastCommand('LOCK')" class="px-3.5 py-2 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/40 text-purple-300 text-xs font-bold transition flex items-center gap-1.5 shadow-sm">
+                    <span>🔒 Lock All Screens</span>
+                </button>
+                <button onclick="broadcastCommand('UNLOCK')" class="px-3.5 py-2 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 text-xs font-bold transition flex items-center gap-1.5 shadow-sm">
+                    <span>🔓 Unlock All</span>
+                </button>
+                <button onclick="promptBroadcastMessage()" class="px-3.5 py-2 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 text-xs font-bold transition flex items-center gap-1.5 shadow-sm">
+                    <span>📢 Broadcast Message</span>
+                </button>
+                <button onclick="toggleCurfewOverride()" id="overrideBtn" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-semibold transition flex items-center gap-1.5">
+                    <span>⚙️ Curfew Override</span>
+                </button>
+                <button onclick="confirmLabShutdown()" class="px-3.5 py-2 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/40 text-rose-300 text-xs font-bold transition flex items-center gap-1.5 shadow-sm">
+                    <span>⚡ Emergency Shutdown</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Tamper Alert Banner (Appears when disconnections/heartbeat drop occurs) -->
+        <div id="tamperAlertSection" class="hidden space-y-3">
+            <div class="p-4 rounded-2xl bg-amber-950/60 border border-amber-500/40 text-amber-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg">
+                <div class="flex items-center gap-3">
+                    <span class="text-2xl animate-bounce">⚠️</span>
+                    <div>
+                        <h4 class="font-bold text-sm text-amber-100">Tamper & Disconnect Alert Detected!</h4>
+                        <p id="tamperAlertText" class="text-xs text-amber-300 mt-0.5">One or more student workstations have stopped reporting telemetry.</p>
+                    </div>
+                </div>
+                <div id="tamperBadges" class="flex flex-wrap items-center gap-2"></div>
+            </div>
+        </div>
+
+        <!-- Live Workstation Grid Header -->
+        <div class="flex items-center justify-between pt-2">
+            <div>
+                <h3 class="text-base font-bold text-white flex items-center gap-2">
+                    <span>Workstations Grid Overview</span>
+                    <span id="gridCountBadge" class="px-2 py-0.5 rounded-full text-[11px] font-mono bg-slate-800 text-indigo-300">0 PCs</span>
+                </h3>
+                <p class="text-xs text-slate-400">Click any workstation for direct lock, student messaging, or graceful shutdown.</p>
+            </div>
+            <div class="flex items-center gap-2 text-xs">
+                <span class="inline-flex items-center gap-1 text-slate-400"><span class="w-2 h-2 rounded-full bg-emerald-400"></span> Normal</span>
+                <span class="inline-flex items-center gap-1 text-slate-400"><span class="w-2 h-2 rounded-full bg-rose-500"></span> Distracted</span>
+                <span class="inline-flex items-center gap-1 text-slate-400"><span class="w-2 h-2 rounded-full bg-amber-500"></span> Tampered</span>
+                <span class="inline-flex items-center gap-1 text-slate-400"><span class="w-2 h-2 rounded-full bg-purple-500"></span> Locked</span>
+            </div>
+        </div>
+
+        <!-- Live PC Cards Grid -->
+        <div id="workstationGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            <!-- Workstation cards dynamically rendered -->
+            <div class="col-span-full py-16 text-center text-slate-500">
+                <span class="text-4xl block mb-2">⏳</span>
+                <p class="text-sm">Waiting for student workstations to connect to the cluster...</p>
+                <p class="text-xs text-slate-600 mt-1">Start workstation client agents using: <code>python -m agent.client_agent</code></p>
+            </div>
+        </div>
+    </main>
+
+    <!-- Client Message Modal -->
+    <div id="msgModal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+            <h3 class="text-base font-bold text-white">Send Notice to <span id="modalTarget" class="text-indigo-400"></span></h3>
+            <textarea id="modalMsgInput" rows="3" placeholder="Type notification message to be displayed on student's screen..." class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500"></textarea>
+            <div class="flex justify-end gap-2">
+                <button onclick="closeMsgModal()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300">Cancel</button>
+                <button onclick="submitTargetMessage()" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white">Send Message</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws;
+        let clusterData = { workstations: [], alerts: [] };
+        let activeModalTarget = null;
+        let isOverrideActive = false;
+
+        // Live Clock
+        function updateLiveClock() {
+            const now = new Date();
+            document.getElementById('liveClock').innerText = now.toLocaleTimeString('en-US', { hour12: false });
+        }
+        setInterval(updateLiveClock, 1000);
+        updateLiveClock();
+
+        // WebSocket Setup
+        function initWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws/admin`;
+            
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                const badge = document.getElementById('connectionBadge');
+                badge.className = 'px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center gap-1.5';
+                badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400"></span><span>Live Sync Active</span>';
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'CLUSTER_UPDATE') {
+                        renderCluster(data);
+                    }
+                } catch (e) {
+                    console.error('Error parsing WS message:', e);
+                }
+            };
+
+            ws.onclose = () => {
+                const badge = document.getElementById('connectionBadge');
+                badge.className = 'px-3 py-1.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-semibold flex items-center gap-1.5';
+                badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-rose-400 animate-pulse"></span><span>Reconnecting...</span>';
+                setTimeout(initWebSocket, 2000);
+            };
+        }
+
+        function renderCluster(data) {
+            clusterData = data;
+            document.getElementById('statTotal').innerText = data.total_registered;
+            document.getElementById('statOnline').innerText = data.total_online;
+            document.getElementById('statDistracted').innerText = data.total_distracted;
+            document.getElementById('statTampered').innerText = data.total_tampered;
+            document.getElementById('gridCountBadge').innerText = `${data.workstations.length} PCs`;
+
+            // Tamper Alerts Section
+            const alertSec = document.getElementById('tamperAlertSection');
+            const alertBadges = document.getElementById('tamperBadges');
+            if (data.alerts && data.alerts.length > 0) {
+                alertSec.classList.remove('hidden');
+                alertBadges.innerHTML = data.alerts.map(a => `
+                    <span class="px-2.5 py-1 rounded-lg bg-amber-500/20 border border-amber-500/40 text-xs font-mono font-bold text-amber-200 flex items-center gap-1.5">
+                        <span>🚨 ${a.client_id} (${a.ip_address})</span>
+                        <button onclick="ackAlert('${a.alert_id}')" class="text-[10px] underline ml-1 hover:text-white">Ack</button>
+                    </span>
+                `).join('');
+            } else {
+                alertSec.classList.add('hidden');
+            }
+
+            // Render PC Cards Grid
+            const grid = document.getElementById('workstationGrid');
+            if (data.workstations.length === 0) {
+                grid.innerHTML = `
+                    <div class="col-span-full py-16 text-center text-slate-500">
+                        <span class="text-4xl block mb-2">⏳</span>
+                        <p class="text-sm">No workstations connected yet.</p>
+                        <p class="text-xs text-slate-600 mt-1">Start agents on student computers to populate the grid.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            grid.innerHTML = data.workstations.map(pc => {
+                const t = pc.latest_telemetry || {};
+                const d = pc.distraction_report || {};
+
+                let borderClass = 'border-slate-800';
+                let statusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">ONLINE</span>';
+
+                if (pc.status === 'DISTRACTED') {
+                    borderClass = 'border-rose-500/50 shadow-lg shadow-rose-950/20';
+                    statusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40 animate-pulse">⚠️ DISTRACTED (REELS)</span>';
+                } else if (pc.status === 'DISCONNECTED_TAMPERED') {
+                    borderClass = 'border-amber-500/50 shadow-lg shadow-amber-950/20';
+                    statusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">🚨 TAMPERED / OFFLINE</span>';
+                } else if (pc.status === 'CURFEW_LOCKED') {
+                    borderClass = 'border-purple-500/50';
+                    statusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40">🔒 CURFEW LOCKED</span>';
+                }
+
+                const cpu = t.cpu_percent ? t.cpu_percent.toFixed(0) : 0;
+                const ram = t.ram_percent ? t.ram_percent.toFixed(0) : 0;
+                const windowTitle = t.active_window_title || 'Idle / Background';
+
+                return `
+                    <div class="bg-slate-900/90 border ${borderClass} rounded-2xl p-4 sm:p-5 flex flex-col justify-between space-y-4 hover:border-slate-700 transition">
+                        <div>
+                            <div class="flex items-start justify-between gap-2 mb-2">
+                                <div>
+                                    <h4 class="font-bold text-base text-white font-mono">${pc.client_id}</h4>
+                                    <p class="text-xs text-slate-400">${pc.student_name} • <span class="text-slate-500">${pc.ip_address}</span></p>
+                                </div>
+                                ${statusBadge}
+                            </div>
+
+                            <!-- Hardware Metrics -->
+                            <div class="grid grid-cols-2 gap-2 my-3 text-xs font-mono">
+                                <div class="bg-slate-950 p-2 rounded-xl border border-slate-800/80">
+                                    <div class="flex justify-between text-slate-400 mb-1"><span>CPU</span><span>${cpu}%</span></div>
+                                    <div class="w-full bg-slate-800 h-1 rounded-full overflow-hidden">
+                                        <div class="bg-indigo-500 h-1 rounded-full" style="width: ${cpu}%"></div>
+                                    </div>
+                                </div>
+                                <div class="bg-slate-950 p-2 rounded-xl border border-slate-800/80">
+                                    <div class="flex justify-between text-slate-400 mb-1"><span>RAM</span><span>${ram}%</span></div>
+                                    <div class="w-full bg-slate-800 h-1 rounded-full overflow-hidden">
+                                        <div class="bg-purple-500 h-1 rounded-full" style="width: ${ram}%"></div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Active Window Title -->
+                            <div class="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/60">
+                                <span class="text-[10px] text-slate-500 font-bold uppercase tracking-wider block mb-1">Active Foreground App</span>
+                                <p class="text-xs text-slate-200 truncate font-mono" title="${windowTitle}">
+                                    ${windowTitle}
+                                </p>
+                                ${d.is_distracted ? `
+                                    <div class="mt-1.5 p-1.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-[11px] text-rose-300 font-semibold">
+                                        🚨 Flagged: ${d.matched_keyword || 'Non-educational content'}
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
+
+                        <!-- Card Action Buttons -->
+                        <div class="grid grid-cols-3 gap-1.5 pt-2 border-t border-slate-800/80">
+                            ${pc.curfew_locked ? `
+                                <button onclick="sendClientCommand('${pc.client_id}', 'UNLOCK')" class="py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-[11px] font-bold text-emerald-300 transition">Unlock</button>
+                            ` : `
+                                <button onclick="sendClientCommand('${pc.client_id}', 'LOCK')" class="py-1.5 rounded-lg bg-purple-600/20 hover:bg-purple-600/30 text-[11px] font-bold text-purple-300 transition">Lock</button>
+                            `}
+                            <button onclick="openMsgModal('${pc.client_id}')" class="py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-[11px] font-bold text-indigo-300 transition">Message</button>
+                            <button onclick="sendClientCommand('${pc.client_id}', 'SHUTDOWN')" class="py-1.5 rounded-lg bg-rose-600/20 hover:bg-rose-600/30 text-[11px] font-bold text-rose-300 transition">Power Off</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Action Handlers
+        async function broadcastCommand(cmd, message = null) {
+            if (!confirm(`Are you sure you want to broadcast ${cmd} to ALL workstations in the lab?`)) return;
+            try {
+                const res = await fetch('/api/admin/command/broadcast', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ command: cmd, message: message })
+                });
+                const data = await res.json();
+                alert(`Broadcast dispatched to ${data.dispatched_count} active workstations.`);
+            } catch (e) {
+                alert('Command failed: ' + e.message);
+            }
+        }
+
+        async function sendClientCommand(clientId, cmd, message = null) {
+            try {
+                const res = await fetch(`/api/admin/command/client/${clientId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ command: cmd, message: message })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    // Feedback
+                } else {
+                    alert(`Failed to deliver command to ${clientId}: ${data.message}`);
+                }
+            } catch (e) {
+                alert('Command delivery error: ' + e.message);
+            }
+        }
+
+        function promptBroadcastMessage() {
+            const msg = prompt('Enter announcement message to display on all student screens:');
+            if (msg && msg.trim()) {
+                broadcastCommand('BROADCAST_MESSAGE', msg.trim());
+            }
+        }
+
+        function confirmLabShutdown() {
+            if (confirm('DANGER: This will send an immediate graceful OS shutdown to ALL computers in the lab! Proceed?')) {
+                broadcastCommand('SHUTDOWN', 'As-Sunnah Lab closing. Workstation powering off.');
+            }
+        }
+
+        async function toggleCurfewOverride() {
+            isOverrideActive = !isOverrideActive;
+            const res = await fetch('/api/admin/curfew/override', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ active: isOverrideActive, reason: 'Instructor manual toggle' })
+            });
+            const data = await res.json();
+            const btn = document.getElementById('overrideBtn');
+            const stat = document.getElementById('statCurfew');
+            if (isOverrideActive) {
+                btn.className = 'px-3.5 py-2 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/40 text-amber-300 text-xs font-bold transition flex items-center gap-1.5';
+                btn.innerHTML = '<span>⚠️ Override Active (Extended)</span>';
+                stat.innerText = 'OVERRIDDEN';
+                stat.className = 'text-sm font-bold text-amber-300 mt-2';
+            } else {
+                btn.className = 'px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-semibold transition flex items-center gap-1.5';
+                btn.innerHTML = '<span>⚙️ Curfew Override</span>';
+                stat.innerText = 'Active (21:00)';
+                stat.className = 'text-sm font-bold text-purple-300 mt-2';
+            }
+        }
+
+        async function ackAlert(alertId) {
+            await fetch(`/api/admin/alerts/ack/${alertId}`, { method: 'POST' });
+        }
+
+        // Modal Helpers
+        function openMsgModal(clientId) {
+            activeModalTarget = clientId;
+            document.getElementById('modalTarget').innerText = clientId;
+            document.getElementById('modalMsgInput').value = '';
+            document.getElementById('msgModal').classList.remove('hidden');
+        }
+
+        function closeMsgModal() {
+            document.getElementById('msgModal').classList.add('hidden');
+            activeModalTarget = null;
+        }
+
+        function submitTargetMessage() {
+            const text = document.getElementById('modalMsgInput').value.trim();
+            if (text && activeModalTarget) {
+                sendClientCommand(activeModalTarget, 'BROADCAST_MESSAGE', text);
+                closeMsgModal();
+            }
+        }
+
+        // Start WS
+        window.addEventListener('DOMContentLoaded', initWebSocket);
+    </script>
+</body>
+</html>

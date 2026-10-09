@@ -1,0 +1,211 @@
+"""Module: agent/client_agent.py
+Description: Lightweight background daemon for student workstations.
+Streams hardware telemetry and foreground window state to Central Command Server,
+and listens for remote administrative instructions (LOCK, UNLOCK, SHUTDOWN, MESSAGE).
+Adheres to SBMC AGENTS.md: Resilient reconnection, safe command handling, zero unhandled exceptions.
+"""
+
+import argparse
+import asyncio
+from datetime import datetime, timezone
+import json
+import logging
+import os
+import platform
+import socket
+import sys
+from typing import Any, Dict, Optional
+
+import websockets
+
+from .window_monitor import WindowMonitor
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] [AGENT] %(message)s")
+logger = logging.getLogger("smart_lab.agent")
+
+
+class SmartLabAgent:
+    """Student workstation daemon connecting to Central Command Server via WebSocket."""
+
+    def __init__(
+        self,
+        server_host: str = "127.0.0.1",
+        server_port: int = 8500,
+        client_id: Optional[str] = None,
+        cluster_secret: Optional[str] = None,
+        student_name: str = "Student Workstation",
+        heartbeat_interval: float = 5.0,
+        mock_mode: bool = False,
+    ):
+        self.server_host = server_host
+        self.server_port = server_port
+        self.hostname = socket.gethostname()
+        self.client_id = client_id or f"PC-{self.hostname.split('-')[-1] if '-' in self.hostname else self.hostname[:6].upper()}"
+        self.cluster_secret = cluster_secret or os.getenv("LAB_CLUSTER_SECRET", "as_sunnah_lab_agent_secret_2026")
+        self.student_name = student_name
+        self.heartbeat_interval = heartbeat_interval
+        self.mock_mode = mock_mode
+
+        self.monitor = WindowMonitor()
+        self.is_locked = False
+        self._running = True
+
+    @property
+    def ws_url(self) -> str:
+        return f"ws://{self.server_host}:{self.server_port}/ws/agent/{self.client_id}?token={self.cluster_secret}"
+
+    def build_registration_payload(self) -> Dict[str, Any]:
+        """Constructs initial handshake registration packet."""
+        return {
+            "type": "REGISTER",
+            "data": {
+                "client_id": self.client_id,
+                "hostname": self.hostname,
+                "ip_address": self.monitor.get_local_ip(),
+                "os_info": f"{platform.system()} {platform.release()}",
+                "student_name": self.student_name,
+                "agent_version": "1.0.0",
+            },
+        }
+
+    def collect_telemetry(self) -> Dict[str, Any]:
+        """Collects current workstation state and metrics."""
+        cpu, ram = self.monitor.get_hardware_stats()
+        title, proc = self.monitor.get_active_window()
+
+        if self.mock_mode and not title:
+            title = "Visual Studio Code - Python Programming"
+            proc = "Code.exe"
+
+        return {
+            "type": "TELEMETRY",
+            "data": {
+                "client_id": self.client_id,
+                "cpu_percent": cpu,
+                "ram_percent": ram,
+                "active_window_title": title,
+                "active_process_name": proc,
+                "is_idle": cpu < 2.0,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        }
+
+    async def handle_inbound_command(self, raw_message: str) -> None:
+        """Processes authorized administrative command received from central server."""
+        try:
+            cmd = json.loads(raw_message)
+            cmd_type = cmd.get("command")
+            message_text = cmd.get("message")
+            logger.info("Received server directive: %s | Message: %s", cmd_type, message_text)
+
+            if cmd_type == "LOCK":
+                self.is_locked = True
+                logger.warning("WORKSTATION LOCKED BY INSTRUCTOR / CURFEW")
+                print("\n" + "=" * 60)
+                print("🔒 [AS-SUNNAH LAB] WORKSTATION LOCKED BY INSTRUCTOR")
+                if message_text:
+                    print(f"Notice: {message_text}")
+                print("=" * 60 + "\n")
+
+            elif cmd_type == "UNLOCK":
+                self.is_locked = False
+                logger.info("WORKSTATION UNLOCKED BY INSTRUCTOR")
+                print("\n🔓 Workstation unlocked. Resuming normal session.\n")
+
+            elif cmd_type == "BROADCAST_MESSAGE":
+                print("\n" + "*" * 60)
+                print(f"📢 [INSTRUCTOR NOTICE]: {message_text}")
+                print("*" * 60 + "\n")
+
+            elif cmd_type == "SHUTDOWN":
+                logger.critical("SHUTDOWN DIRECTIVE RECEIVED. Initiating shutdown sequence.")
+                print("\n⚡ [CURFEW SHUTDOWN] Shutting down lab computer in 15 seconds...\n")
+                if not self.mock_mode and platform.system() == "Windows":
+                    os.system("shutdown /s /t 15 /c \"As-Sunnah Lab Curfew Initiated\"")
+
+        except Exception as exc:
+            logger.error("Failed to parse inbound command: %s", exc)
+
+    async def _send_telemetry_loop(self, websocket: websockets.WebSocketClientProtocol) -> None:
+        """Periodically streams telemetry and heartbeats to server."""
+        while self._running:
+            try:
+                payload = self.collect_telemetry()
+                await websocket.send(json.dumps(payload))
+                await asyncio.sleep(self.heartbeat_interval)
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                logger.warning("Telemetry transmission interrupted: %s", exc)
+                break
+
+    async def _receive_command_loop(self, websocket: websockets.WebSocketClientProtocol) -> None:
+        """Listens for remote instructions emitted by instructor."""
+        while self._running:
+            try:
+                msg = await websocket.recv()
+                await self.handle_inbound_command(msg)
+            except asyncio.CancelledError:
+                break
+            except websockets.exceptions.ConnectionClosed:
+                logger.warning("Connection closed by server.")
+                break
+            except Exception as exc:
+                logger.error("Command listener error: %s", exc)
+                break
+
+    async def run_session(self) -> None:
+        """Main connection and session manager with automatic retry backoff."""
+        backoff = 2.0
+        while self._running:
+            try:
+                logger.info("Attempting connection to Central Command: %s", self.ws_url)
+                async with websockets.connect(self.ws_url) as ws:
+                    backoff = 2.0
+                    logger.info("Connected successfully as %s", self.client_id)
+
+                    # Handshake registration
+                    await ws.send(json.dumps(self.build_registration_payload()))
+
+                    # Run telemetry and command listeners concurrently
+                    send_task = asyncio.create_task(self._send_telemetry_loop(ws))
+                    recv_task = asyncio.create_task(self._receive_command_loop(ws))
+
+                    done, pending = await asyncio.wait(
+                        [send_task, recv_task],
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+
+                    for p in pending:
+                        p.cancel()
+
+            except (websockets.exceptions.WebSocketException, OSError) as exc:
+                logger.warning("Connection to command center failed (%s). Retrying in %.1fs...", exc, backoff)
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 1.5, 15.0)
+            except Exception as exc:
+                logger.error("Unexpected error in agent session: %s", exc)
+                await asyncio.sleep(5.0)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Smart Lab Workstation Agent Daemon")
+    parser.add_argument("--host", default="127.0.0.1", help="Central Command Server Host")
+    parser.add_argument("--port", type=int, default=8500, help="Central Command Server Port")
+    parser.add_argument("--client-id", default=None, help="Workstation ID (e.g. LAB-PC-01)")
+    parser.add_argument("--student", default="Student Workstation", help="Assigned student name")
+    parser.add_argument("--mock", action="store_true", help="Run with mock telemetry for testing")
+    args = parser.parse_args()
+
+    agent = SmartLabAgent(
+        server_host=args.host,
+        server_port=args.port,
+        client_id=args.client_id,
+        student_name=args.student,
+        mock_mode=args.mock,
+    )
+    asyncio.run(agent.run_session())
+
+
+if __name__ == "__main__":
+    main()
